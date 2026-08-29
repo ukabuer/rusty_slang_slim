@@ -15,6 +15,13 @@ add_compile_options(
     "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/utf-8>"
 )
 
+# The Android NDK injects `-g` even for Release configurations. Release assets
+# keep symbols in a separate maintainer workflow, so make the production object
+# archives deterministic in size without a required post-build mutation.
+if(ANDROID)
+    add_compile_options("$<$<CONFIG:Release>:-g0>")
+endif()
+
 set(
     SLANG_SLIM_SLANG_SOURCE_DIR
     "${CMAKE_CURRENT_LIST_DIR}/../third_party/slang"
@@ -46,3 +53,12 @@ endif()
 # stable meta-target gives local builds and CI one platform-independent target
 # for the compiler dependency in the meantime.
 add_custom_target(slang-slim-native DEPENDS slang)
+
+# This executable is a maintainer-only feasibility probe. It is deliberately
+# excluded from normal builds and is not installed or distributed.
+add_executable(
+    slang-slim-feasibility
+    EXCLUDE_FROM_ALL
+    "${CMAKE_CURRENT_LIST_DIR}/feasibility/main.cpp"
+)
+target_link_libraries(slang-slim-feasibility PRIVATE slang)

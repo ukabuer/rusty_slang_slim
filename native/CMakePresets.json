@@ -58,12 +58,30 @@
       ]
     },
     {
+      "name": "windows-x64-feasibility",
+      "displayName": "Run the Windows x64 native feasibility build",
+      "configurePreset": "windows-x64",
+      "configuration": "Release",
+      "targets": [
+        "slang-slim-feasibility"
+      ]
+    },
+    {
       "name": "android-arm64-release",
       "displayName": "Build Android ARM64 Slang dependency",
       "configurePreset": "android-arm64",
       "configuration": "Release",
       "targets": [
         "slang-slim-native"
+      ]
+    },
+    {
+      "name": "android-arm64-feasibility",
+      "displayName": "Link the Android ARM64 native feasibility probe",
+      "configurePreset": "android-arm64",
+      "configuration": "Release",
+      "targets": [
+        "slang-slim-feasibility"
       ]
     }
   ]

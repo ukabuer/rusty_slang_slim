@@ -52,4 +52,18 @@ cmake --build --preset windows-x64-release
 cmake --build --preset android-arm64-release
 ```
 
+To run the maintainer-only native feasibility probe after those builds:
+
+```powershell
+cmake --build --preset windows-x64-feasibility --parallel
+build/native/windows-x64/Release/slang-slim-feasibility.exe `
+  tests/shaders/multi-entry.hlsl build/feasibility/windows-api
+
+$env:ANDROID_NDK_HOME = (Resolve-Path build/toolchains/android-ndk-r27d).Path
+cmake --build --preset android-arm64-feasibility --parallel
+```
+
+The probe and the size/dependency conclusions are recorded in
+[`docs/feasibility.md`](feasibility.md).
+
 All generated files stay below `build/native` and are ignored by Git.

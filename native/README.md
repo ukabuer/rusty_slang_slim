@@ -10,6 +10,8 @@ The current baseline provides:
 - Unused Slang components disabled before configuration.
 - Windows x86_64/MSVC and Android ARM64/API 29 presets.
 - The `slang-slim-native` build target.
+- The excluded `slang-slim-feasibility` probe for multi-target codegen and
+  reflection.
 
 The exported C ABI and ABI-level tests remain deferred until the native
 feasibility build confirms the final archive shape. See `docs/building.md` for
