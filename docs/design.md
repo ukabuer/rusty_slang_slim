@@ -69,4 +69,16 @@ The initial pin is Slang `v2026.16.1`.
 
 The Rust crate stays small and selects a GitHub Release asset from the crate version and Rust target triple. The crate will embed immutable SHA-256 metadata and support local archives, mirrors, and persistent caches.
 
+Each native asset is named
+`slang-slim-native-v{version}-{rust-target}.zip`. It contains the public C
+header, the non-LTO static facade and its audited static dependencies, and a
+`manifest.json` that fixes library order, platform runtime/system libraries,
+file sizes, and per-file SHA-256 hashes. A sibling `.zip.sha256` file records
+the checksum that must be embedded in the published Rust crate before release.
+
+The dependencies remain separate archives inside the ZIP. This preserves the
+normal linker's selective object extraction and avoids rewriting upstream
+archives; consumers still see one downloadable asset. LTO archives are not
+published.
+
 Source builds are a maintainer and CI workflow only.

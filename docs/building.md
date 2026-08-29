@@ -75,4 +75,25 @@ cmake --build --preset android-arm64-lto-abi --parallel
 The native probe and the size/dependency conclusions are recorded in
 [`docs/feasibility.md`](feasibility.md).
 
-All generated files stay below `build/native` and are ignored by Git.
+## Package a release asset
+
+After the non-LTO Release target has been built, package its complete static
+link set from the repository root:
+
+```powershell
+./scripts/package-native.ps1 `
+  -Target x86_64-pc-windows-msvc `
+  -Version 0.1.0
+
+$env:ANDROID_NDK_HOME = (Resolve-Path build/toolchains/android-ndk-r27d).Path
+cmake --build --preset android-arm64-release --parallel
+./scripts/package-native.ps1 `
+  -Target aarch64-linux-android `
+  -Version 0.1.0
+```
+
+Assets and their sibling SHA-256 files are written under `build/packages` by
+default. The ZIP manifest is the contract consumed by the later
+`slang-slim-sys` download/link step.
+
+All generated files stay below `build` and are ignored by Git.
