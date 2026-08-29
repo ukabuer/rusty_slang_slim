@@ -53,11 +53,10 @@ The native artifact shape remains intentionally undecided until the feasibility 
 
 Slang is included as a recursive git submodule pinned to a stable release commit. A git submodule records an exact commit; it does not automatically follow the latest tag. Upgrades are explicit, reviewed changes that update the submodule pointer and rebuild all release assets.
 
-The initial pin is Slang `v2026.14`.
+The initial pin is Slang `v2026.16.1`.
 
 ## Distribution
 
 The Rust crate stays small and selects a GitHub Release asset from the crate version and Rust target triple. The crate will embed immutable SHA-256 metadata and support local archives, mirrors, and persistent caches.
 
 Source builds are a maintainer and CI workflow only.
-

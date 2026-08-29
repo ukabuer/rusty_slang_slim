@@ -1,0 +1,70 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "windows-x64",
+      "displayName": "Windows x64 (MSVC)",
+      "description": "Windows x64 baseline and host generators",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/../build/native/windows-x64",
+      "cacheVariables": {
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>",
+        "SLANG_IGNORE_ABORT_MSG": "ON"
+      }
+    },
+    {
+      "name": "android-base",
+      "hidden": true,
+      "generator": "Ninja Multi-Config",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
+        "ANDROID_ABI": "arm64-v8a",
+        "ANDROID_PLATFORM": "android-29",
+        "ANDROID_STL": "c++_static",
+        "SLANG_GENERATORS_PATH": "${sourceDir}/../build/native/host-tools/bin"
+      }
+    },
+    {
+      "name": "android-arm64",
+      "displayName": "Android ARM64 (API 29)",
+      "description": "Android arm64-v8a baseline using NDK r27d",
+      "inherits": "android-base",
+      "binaryDir": "${sourceDir}/../build/native/android-arm64"
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-x64-generators",
+      "displayName": "Build Windows host generators",
+      "configurePreset": "windows-x64",
+      "configuration": "Release",
+      "targets": [
+        "slang/tools/all-generators"
+      ]
+    },
+    {
+      "name": "windows-x64-release",
+      "displayName": "Build Windows x64 Slang dependency",
+      "configurePreset": "windows-x64",
+      "configuration": "Release",
+      "targets": [
+        "slang-slim-native"
+      ]
+    },
+    {
+      "name": "android-arm64-release",
+      "displayName": "Build Android ARM64 Slang dependency",
+      "configurePreset": "android-arm64",
+      "configuration": "Release",
+      "targets": [
+        "slang-slim-native"
+      ]
+    }
+  ]
+}

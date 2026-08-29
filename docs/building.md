@@ -1,0 +1,55 @@
+# Native build baselines
+
+The production artifacts are built outside Cargo and later published through
+GitHub Releases. Cargo consumers do not compile Slang.
+
+## Pinned toolchains
+
+| Build | Baseline |
+| --- | --- |
+| Windows host and target | Visual Studio 2022, MSVC x64, static MSVC runtime |
+| Android target | NDK r27d (`27.3.13750724`), `arm64-v8a`, API 29, static libc++ |
+| CMake | 3.25 or newer |
+| Slang | Git submodule tag `v2026.16.1` |
+
+NDK r27d is the current Android LTS toolchain. The NDK version does not set the
+minimum device OS: the Android preset separately fixes `ANDROID_PLATFORM` to
+`android-29`.
+
+MSVC builds explicitly use UTF-8 source decoding, so their behavior does not
+depend on the Windows system locale.
+
+## Bootstrap and configure
+
+Initialize the pinned Slang tree first:
+
+```powershell
+git submodule update --init --recursive
+```
+
+Install NDK `27.3.13750724`, then run:
+
+```powershell
+./scripts/bootstrap-android.ps1 -AndroidNdkHome C:/path/to/android-ndk-r27d
+```
+
+The script performs these steps:
+
+1. Configures the Windows x64 build.
+2. Builds and installs Slang's build-host generators.
+3. Configures the Android ARM64 cross build with those host tools.
+
+It intentionally does not build the final Slang libraries. The next native
+feasibility step builds `windows-x64-release` and `android-arm64-release`, then
+audits the exact archive size and dependencies.
+
+## Manual build commands
+
+Run CMake commands from the `native` directory:
+
+```powershell
+cmake --build --preset windows-x64-release
+cmake --build --preset android-arm64-release
+```
+
+All generated files stay below `build/native` and are ignored by Git.

@@ -14,5 +14,5 @@ Consumers will download prebuilt native archives from GitHub Releases. Building 
 
 The repository currently contains only the raw `slang-slim-sys` crate. A safe `slang-slim` crate may be added later.
 
-See [docs/design.md](docs/design.md) for the frozen v0.1 scope and implementation boundaries.
-
+See [docs/design.md](docs/design.md) for the frozen v0.1 scope and
+[docs/building.md](docs/building.md) for maintainer build baselines.
