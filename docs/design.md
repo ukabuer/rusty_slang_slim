@@ -47,7 +47,17 @@ The ABI will expose only:
 - Byte blobs, target-specific reflection JSON, and diagnostics.
 - Explicit ownership and destruction functions.
 
-The native artifact shape remains intentionally undecided until the feasibility spike determines whether Slang can be shipped as a monolithic static archive without runtime downstream-compiler plugins.
+The first native slice implements this surface in `native/include/slang_slim.h`.
+Status values are owned by slang-slim rather than exposing Slang's HRESULT-like
+codes. A compile result owns all generated blobs and diagnostics; callers only
+borrow `slang_slim_blob` views until `slang_slim_compilation_destroy` is called.
+Descriptors and their pointed-to data are borrowed for the duration of the
+compile call. Virtual-file callbacks are synchronous and receive normalized
+UTF-8 paths; returned bytes are copied before the callback returns.
+
+The native artifact shape remains intentionally undecided until the packaging
+step determines how the C ABI archive and its Slang static dependencies are
+published as GitHub Release assets.
 
 ## Dependency policy
 

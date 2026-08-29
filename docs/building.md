@@ -59,11 +59,15 @@ cmake --build --preset windows-x64-feasibility --parallel
 build/native/windows-x64/Release/slang-slim-feasibility.exe `
   tests/shaders/multi-entry.hlsl build/feasibility/windows-api
 
+cmake --build --preset windows-x64-abi --parallel
+build/native/windows-x64/Release/slang-slim-abi-feasibility.exe
+
 $env:ANDROID_NDK_HOME = (Resolve-Path build/toolchains/android-ndk-r27d).Path
 cmake --build --preset android-arm64-feasibility --parallel
+cmake --build --preset android-arm64-abi --parallel
 ```
 
-The probe and the size/dependency conclusions are recorded in
+The native probe and the size/dependency conclusions are recorded in
 [`docs/feasibility.md`](feasibility.md).
 
 All generated files stay below `build/native` and are ignored by Git.

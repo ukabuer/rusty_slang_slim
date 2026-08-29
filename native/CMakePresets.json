@@ -67,6 +67,15 @@
       ]
     },
     {
+      "name": "windows-x64-abi",
+      "displayName": "Run the Windows x64 C ABI feasibility build",
+      "configurePreset": "windows-x64",
+      "configuration": "Release",
+      "targets": [
+        "slang-slim-abi-feasibility"
+      ]
+    },
+    {
       "name": "android-arm64-release",
       "displayName": "Build Android ARM64 Slang dependency",
       "configurePreset": "android-arm64",
@@ -82,6 +91,15 @@
       "configuration": "Release",
       "targets": [
         "slang-slim-feasibility"
+      ]
+    },
+    {
+      "name": "android-arm64-abi",
+      "displayName": "Link the Android ARM64 C ABI feasibility probe",
+      "configurePreset": "android-arm64",
+      "configuration": "Release",
+      "targets": [
+        "slang-slim-abi-feasibility"
       ]
     }
   ]

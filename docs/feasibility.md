@@ -35,6 +35,18 @@ cmake --build --preset android-arm64-feasibility --parallel
 The Android binary was cross-linked but not executed on a physical device or
 emulator in this pass.
 
+The project-owned C ABI is exercised by `slang-slim-abi-feasibility`. It
+composes the same three entry-point stages through opaque handles, resolves an
+in-memory `#include`, checks target-specific reflection JSON, and validates the
+SPIR-V 1.3 header. The Windows ABI smoke executable links to the same static
+dependency set and is about 22.81 MiB in the local Release link.
+
+`IGlobalSession::checkCompileTargetSupport` is not used as the ABI capability
+gate. In this configuration Slang reports SPIR-V as unavailable when optional
+validation tools are omitted, even though its in-process SPIR-V emitter works;
+the facade instead gates the fixed profiles and lets the actual compile report
+backend failures.
+
 ## What the official WASM build does
 
 The pinned Slang source's Emscripten preset uses a static library, `-Os`, and

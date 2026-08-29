@@ -49,10 +49,23 @@ if(NOT TARGET slang)
     message(FATAL_ERROR "The pinned Slang source did not define the slang target")
 endif()
 
-# The wrapper library is deliberately deferred until the C ABI step. This
-# stable meta-target gives local builds and CI one platform-independent target
-# for the compiler dependency in the meantime.
-add_custom_target(slang-slim-native DEPENDS slang)
+add_library(
+    slang-slim-c-api
+    STATIC
+    "${CMAKE_CURRENT_LIST_DIR}/src/slang_slim.cpp"
+)
+target_compile_features(slang-slim-c-api PRIVATE cxx_std_17)
+target_compile_definitions(slang-slim-c-api PRIVATE SLANG_SLIM_BUILDING)
+target_include_directories(
+    slang-slim-c-api
+    PUBLIC
+        "${CMAKE_CURRENT_LIST_DIR}/include"
+)
+target_link_libraries(slang-slim-c-api PUBLIC slang)
+
+# This stable meta-target is the native dependency consumed by the future
+# sys crate packaging step.
+add_custom_target(slang-slim-native DEPENDS slang-slim-c-api)
 
 # This executable is a maintainer-only feasibility probe. It is deliberately
 # excluded from normal builds and is not installed or distributed.
@@ -62,3 +75,13 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/feasibility/main.cpp"
 )
 target_link_libraries(slang-slim-feasibility PRIVATE slang)
+
+# A small executable exercises the public C ABI without depending on any
+# internal Slang headers. It is excluded from normal builds and is not
+# installed or distributed.
+add_executable(
+    slang-slim-abi-feasibility
+    EXCLUDE_FROM_ALL
+    "${CMAKE_CURRENT_LIST_DIR}/feasibility/abi_main.cpp"
+)
+target_link_libraries(slang-slim-abi-feasibility PRIVATE slang-slim-c-api)
