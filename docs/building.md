@@ -7,7 +7,7 @@ GitHub Releases. Cargo consumers do not compile Slang.
 
 | Build | Baseline |
 | --- | --- |
-| Windows host and target | Visual Studio 2022, MSVC x64, static MSVC runtime |
+| Windows host and target | Visual Studio 2022, MSVC x64, dynamic MSVC runtime (`/MD`) |
 | Android target | NDK r27d (`27.3.13750724`), `arm64-v8a`, API 29, static libc++ |
 | CMake | 3.25 or newer |
 | Slang | Git submodule tag `v2026.16.1` |
@@ -17,7 +17,10 @@ minimum device OS: the Android preset separately fixes `ANDROID_PLATFORM` to
 `android-29`.
 
 MSVC builds explicitly use UTF-8 source decoding, so their behavior does not
-depend on the Windows system locale.
+depend on the Windows system locale. The Windows native asset uses the dynamic
+MSVC CRT (`/MD`) to match the default Rust MSVC target; consumers do not need to
+enable Rust's `crt-static` target feature. The corresponding Microsoft runtime
+DLLs must be available on the deployment machine.
 
 ## Bootstrap and configure
 
@@ -95,5 +98,33 @@ cmake --build --preset android-arm64-release --parallel
 Assets and their sibling SHA-256 files are written under `build/packages` by
 default. The ZIP manifest is the contract consumed by the later
 `slang-slim-sys` download/link step.
+
+## Exercise the Rust linker locally
+
+Before release metadata is published, point the sys crate at a locally packaged
+archive. Relative paths are resolved from `crates/slang-slim-sys`:
+
+```powershell
+$env:SLANG_SLIM_NATIVE_ARCHIVE = `
+  "../../build/packages/slang-slim-native-v0.0.0-x86_64-pc-windows-msvc.zip"
+cargo test -p slang-slim-sys
+Remove-Item Env:SLANG_SLIM_NATIVE_ARCHIVE
+```
+
+The build script verifies the sibling `.zip.sha256`, stores the archive and
+validated extraction in a persistent Cargo cache, and links the libraries in
+manifest order. `SLANG_SLIM_NATIVE_DIR` can instead point at an already
+extracted package. `SLANG_SLIM_CACHE_DIR` overrides the cache location, and
+`SLANG_SLIM_RELEASE_BASE_URL` selects a GitHub-compatible mirror.
+
+Version `0.0.0` remains source-only when neither local override is set. A real
+release adds immutable archive hashes to
+`crates/slang-slim-sys/native-artifacts.json`; only then is automatic download
+enabled for that crate version and target. `CARGO_NET_OFFLINE=true` and
+`SLANG_SLIM_DISABLE_DOWNLOAD=1` prohibit network fallback.
+
+The first Windows release supports the dynamic MSVC CRT only. A Cargo build
+using `-C target-feature=+crt-static` is rejected until a matching static-CRT
+asset is published.
 
 All generated files stay below `build` and are ignored by Git.

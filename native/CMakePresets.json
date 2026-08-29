@@ -14,7 +14,7 @@
       "architecture": "x64",
       "binaryDir": "${sourceDir}/../build/native/windows-x64",
       "cacheVariables": {
-        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>",
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL",
         "SLANG_IGNORE_ABORT_MSG": "ON"
       }
     },
