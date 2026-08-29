@@ -63,6 +63,22 @@ target_include_directories(
 )
 target_link_libraries(slang-slim-c-api PUBLIC slang)
 
+# Slang's `SLANG_ENABLE_RELEASE_LTO` option applies to upstream targets created
+# by `slang_add_target`. Apply the same opt-in to the project-owned facade and
+# maintainer probes so the LTO size experiment covers the complete link graph.
+function(slang_slim_apply_release_lto target)
+    if(SLANG_ENABLE_RELEASE_LTO)
+        set_target_properties(
+            "${target}"
+            PROPERTIES
+                INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
+                INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE
+        )
+    endif()
+endfunction()
+
+slang_slim_apply_release_lto(slang-slim-c-api)
+
 # This stable meta-target is the native dependency consumed by the future
 # sys crate packaging step.
 add_custom_target(slang-slim-native DEPENDS slang-slim-c-api)
@@ -75,6 +91,7 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/feasibility/main.cpp"
 )
 target_link_libraries(slang-slim-feasibility PRIVATE slang)
+slang_slim_apply_release_lto(slang-slim-feasibility)
 
 # A small executable exercises the public C ABI without depending on any
 # internal Slang headers. It is excluded from normal builds and is not
@@ -85,3 +102,4 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/feasibility/abi_main.cpp"
 )
 target_link_libraries(slang-slim-abi-feasibility PRIVATE slang-slim-c-api)
+slang_slim_apply_release_lto(slang-slim-abi-feasibility)

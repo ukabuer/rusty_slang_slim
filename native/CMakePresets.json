@@ -19,6 +19,16 @@
       }
     },
     {
+      "name": "windows-x64-lto",
+      "displayName": "Windows x64 (MSVC, Release LTO)",
+      "description": "Windows x64 Release LTO size experiment",
+      "inherits": "windows-x64",
+      "binaryDir": "${sourceDir}/../build/native/windows-x64-lto",
+      "cacheVariables": {
+        "SLANG_ENABLE_RELEASE_LTO": "ON"
+      }
+    },
+    {
       "name": "android-base",
       "hidden": true,
       "generator": "Ninja Multi-Config",
@@ -36,6 +46,16 @@
       "description": "Android arm64-v8a baseline using NDK r27d",
       "inherits": "android-base",
       "binaryDir": "${sourceDir}/../build/native/android-arm64"
+    },
+    {
+      "name": "android-arm64-lto",
+      "displayName": "Android ARM64 (API 29, Release LTO)",
+      "description": "Android ARM64 Release LTO size experiment",
+      "inherits": "android-arm64",
+      "binaryDir": "${sourceDir}/../build/native/android-arm64-lto",
+      "cacheVariables": {
+        "SLANG_ENABLE_RELEASE_LTO": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -76,6 +96,24 @@
       ]
     },
     {
+      "name": "windows-x64-lto-release",
+      "displayName": "Build Windows x64 C ABI dependency with Release LTO",
+      "configurePreset": "windows-x64-lto",
+      "configuration": "Release",
+      "targets": [
+        "slang-slim-native"
+      ]
+    },
+    {
+      "name": "windows-x64-lto-abi",
+      "displayName": "Run the Windows x64 C ABI LTO size experiment",
+      "configurePreset": "windows-x64-lto",
+      "configuration": "Release",
+      "targets": [
+        "slang-slim-abi-feasibility"
+      ]
+    },
+    {
       "name": "android-arm64-release",
       "displayName": "Build Android ARM64 Slang dependency",
       "configurePreset": "android-arm64",
@@ -97,6 +135,24 @@
       "name": "android-arm64-abi",
       "displayName": "Link the Android ARM64 C ABI feasibility probe",
       "configurePreset": "android-arm64",
+      "configuration": "Release",
+      "targets": [
+        "slang-slim-abi-feasibility"
+      ]
+    },
+    {
+      "name": "android-arm64-lto-release",
+      "displayName": "Build Android ARM64 C ABI dependency with Release LTO",
+      "configurePreset": "android-arm64-lto",
+      "configuration": "Release",
+      "targets": [
+        "slang-slim-native"
+      ]
+    },
+    {
+      "name": "android-arm64-lto-abi",
+      "displayName": "Link the Android ARM64 C ABI LTO size experiment",
+      "configurePreset": "android-arm64-lto",
       "configuration": "Release",
       "targets": [
         "slang-slim-abi-feasibility"

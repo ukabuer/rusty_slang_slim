@@ -62,9 +62,14 @@ build/native/windows-x64/Release/slang-slim-feasibility.exe `
 cmake --build --preset windows-x64-abi --parallel
 build/native/windows-x64/Release/slang-slim-abi-feasibility.exe
 
+# Optional Release-LTO size experiment (uses a separate build directory).
+cmake --build --preset windows-x64-lto-abi --parallel
+build/native/windows-x64-lto/Release/slang-slim-abi-feasibility.exe
+
 $env:ANDROID_NDK_HOME = (Resolve-Path build/toolchains/android-ndk-r27d).Path
 cmake --build --preset android-arm64-feasibility --parallel
 cmake --build --preset android-arm64-abi --parallel
+cmake --build --preset android-arm64-lto-abi --parallel
 ```
 
 The native probe and the size/dependency conclusions are recorded in

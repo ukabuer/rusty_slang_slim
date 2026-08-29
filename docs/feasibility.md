@@ -92,8 +92,29 @@ runtime downstream compiler/plugin.
 | Remove individual Slang source files/backends | Not a stable upstream option and risks hidden reflection/codegen dependencies. Defer unless a map/LTO profile proves a large, isolated win. |
 | Disable embedded core-module source | Does not materially reduce the final compiler link in this probe; the source is needed by the host bootstrap path. Keep the current deterministic bootstrap setup. |
 
-The next size experiment should therefore measure a real C ABI wrapper with
-Release LTO and platform-appropriate final stripping. The raw archive result
-is already suitable for GitHub Release download (and stays outside the
-10 MiB crate payload); changing compiler semantics solely to chase the WASM
-compressed size would be premature.
+The Release-LTO experiment uses separate `windows-x64-lto` and
+`android-arm64-lto` CMake presets. LTO is opt-in and is applied to both the
+upstream Slang targets and the project-owned facade/probes; the ordinary
+baseline presets remain unchanged.
+
+The Windows C ABI probe passed with MSVC `/GL` compilation and an `/LTCG` final
+link, but LTO did not reduce the linked image:
+
+| Windows artifact | Baseline | Release LTO | Change |
+| --- | ---: | ---: | ---: |
+| `slang-slim-abi-feasibility.exe` | 22.81 MiB | 22.87 MiB | +69,632 bytes (+0.29%) |
+| `slang-compiler.lib` | 108.26 MiB | 791.10 MiB | 7.31x |
+| `slang-slim-c-api.lib` | 0.20 MiB | 1.59 MiB | 7.81x |
+
+The archive growth is expected for MSVC LTO: `/GL` archives retain compiler
+intermediate representation for the final `/LTCG` link. They are therefore not
+comparable to ordinary machine-code archives and are substantially worse as
+downloadable static assets. The non-LTO link already uses `/OPT:REF` and
+`/OPT:ICF`, so whole-program optimization found no useful size reduction for
+this facade.
+
+Windows release assets will keep LTO disabled. This avoids the larger download,
+longer final link, and tighter linker-toolchain coupling without increasing the
+linked program size. The LTO presets remain available as reproducible
+maintainer experiments; Android LTO still needs a platform build before making
+a separate Android decision.
