@@ -1,0 +1,17 @@
+/target/
+/build/
+/out/
+/.vs/
+/.vscode/
+/.idea/
+
+**/CMakeFiles/
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/compile_commands.json
+
+*.user
+*.suo
+*.swp
+*.tmp
+
