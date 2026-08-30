@@ -9,7 +9,7 @@ use slang_slim_sys as sys;
 
 use crate::{
     Error, Output, Result,
-    component::{ComponentKind, ComponentType},
+    component::{Component, ComponentType, CompositeComponentType, Module},
     error::{RawBlob, finish, is_success},
     vfs::{FileSystem, VfsKeepAlive},
 };
@@ -478,7 +478,7 @@ impl Session {
         module_name: &str,
         path: &str,
         source: &[u8],
-    ) -> Result<Output<ComponentType>> {
+    ) -> Result<Output<Module>> {
         let module_name = make_cstring(module_name)?;
         let path = make_cstring(path)?;
         let source = RawBlob::new(source)?;
@@ -514,7 +514,9 @@ impl Session {
         }
         finish(
             status,
-            ComponentType::from_raw(raw_module, self.inner.clone(), ComponentKind::Module),
+            Module {
+                component: ComponentType::from_raw(raw_module, self.inner.clone()),
+            },
             diagnostics,
         )
     }
@@ -523,15 +525,15 @@ impl Session {
     /// composed components.
     pub fn create_composite_component_type(
         &self,
-        components: &[&ComponentType],
-    ) -> Result<Output<ComponentType>> {
+        components: &[&dyn Component],
+    ) -> Result<Output<CompositeComponentType>> {
         let raw_components: Vec<_> = components
             .iter()
-            .map(|component| component.inner.raw.as_ptr())
+            .map(|component| component.as_component_type().inner.raw.as_ptr())
             .collect();
         if components
             .iter()
-            .any(|component| !Rc::ptr_eq(&component.inner.session, &self.inner))
+            .any(|component| !Rc::ptr_eq(&component.as_component_type().inner.session, &self.inner))
         {
             return Err(Error::invalid_argument());
         }
@@ -565,7 +567,9 @@ impl Session {
         }
         finish(
             status,
-            ComponentType::from_raw(raw_component, self.inner.clone(), ComponentKind::Composite),
+            CompositeComponentType {
+                component: ComponentType::from_raw(raw_component, self.inner.clone()),
+            },
             diagnostics,
         )
     }

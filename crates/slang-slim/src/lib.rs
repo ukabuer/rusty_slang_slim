@@ -17,7 +17,10 @@ mod error;
 mod session;
 mod vfs;
 
-pub use component::{ComponentType, EntryPoint, LinkedComponentType, Module, ProgramLayout};
+pub use component::{
+    Component, ComponentType, CompositeComponentType, EntryPoint, LinkedComponentType, Module,
+    ProgramLayout,
+};
 pub use error::{Diagnostics, Error, Output, Result};
 pub use session::{
     CompilerOption, GlobalSession, GlobalSessionDesc, Session, SessionDesc, TargetDesc,

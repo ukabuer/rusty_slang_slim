@@ -1,5 +1,6 @@
 use std::{
     ffi::{CStr, CString},
+    ops::Deref,
     ptr,
     rc::Rc,
 };
@@ -17,118 +18,104 @@ pub(crate) struct ComponentInner {
     pub(crate) session: Rc<SessionInner>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ComponentKind {
-    Module,
-    EntryPoint,
-    Composite,
-    Linked,
-}
-
-/// A Slang module, entry point, composite component, or linked component.
+/// The common safe view of Slang's `IComponentType` interface.
 ///
-/// Slang exposes all of these through `IComponentType` handles. The safe
-/// wrapper keeps one Rust type for that common interface, while the aliases
-/// [`Module`], [`EntryPoint`], and [`LinkedComponentType`] preserve the names
-/// used in Slang's C++ workflow.
+/// Slang's module, entry-point, composite, and linked objects all implement
+/// `IComponentType`. The safe wrapper keeps the common operations on this type
+/// and exposes the more specific object names as distinct wrappers below.
 #[derive(Clone)]
 pub struct ComponentType {
     pub(crate) inner: Rc<ComponentInner>,
-    pub(crate) kind: ComponentKind,
 }
 
-/// Alias matching Slang's module object in the native API.
-pub type Module = ComponentType;
-/// Alias matching Slang's entry-point object in the native API.
-pub type EntryPoint = ComponentType;
-/// Alias for the component returned by `link`.
-pub type LinkedComponentType = ComponentType;
+/// A module loaded into a [`crate::Session`].
+#[derive(Clone)]
+pub struct Module {
+    pub(crate) component: ComponentType,
+}
+
+/// An entry point discovered from a [`Module`].
+#[derive(Clone)]
+pub struct EntryPoint {
+    pub(crate) component: ComponentType,
+}
+
+/// A component graph returned by [`crate::Session::create_composite_component_type`].
+#[derive(Clone)]
+pub struct CompositeComponentType {
+    pub(crate) component: ComponentType,
+}
+
+/// A fully linked component graph.
+#[derive(Clone)]
+pub struct LinkedComponentType {
+    pub(crate) component: ComponentType,
+}
+
+/// A component that can participate in Slang composition.
+///
+/// The trait is intentionally limited to the common `IComponentType` view
+/// needed by `Session::create_composite_component_type`. Concrete wrappers
+/// retain their distinct methods and ownership.
+pub trait Component {
+    fn as_component_type(&self) -> &ComponentType;
+}
+
+impl Component for ComponentType {
+    fn as_component_type(&self) -> &ComponentType {
+        self
+    }
+}
+
+impl Component for Module {
+    fn as_component_type(&self) -> &ComponentType {
+        &self.component
+    }
+}
+
+impl Component for EntryPoint {
+    fn as_component_type(&self) -> &ComponentType {
+        &self.component
+    }
+}
+
+impl Component for CompositeComponentType {
+    fn as_component_type(&self) -> &ComponentType {
+        &self.component
+    }
+}
+
+impl Component for LinkedComponentType {
+    fn as_component_type(&self) -> &ComponentType {
+        &self.component
+    }
+}
+
+macro_rules! impl_component_deref {
+    ($type:ty) => {
+        impl Deref for $type {
+            type Target = ComponentType;
+
+            fn deref(&self) -> &Self::Target {
+                &self.component
+            }
+        }
+    };
+}
+
+impl_component_deref!(Module);
+impl_component_deref!(EntryPoint);
+impl_component_deref!(CompositeComponentType);
+impl_component_deref!(LinkedComponentType);
 
 impl ComponentType {
     pub(crate) fn from_raw(
         raw: ptr::NonNull<sys::IComponentType>,
         session: Rc<SessionInner>,
-        kind: ComponentKind,
     ) -> Self {
         Self {
             inner: Rc::new(ComponentInner { raw, session }),
-            kind,
         }
-    }
-
-    /// Finds and validates an entry point in this module.
-    pub fn find_and_check_entry_point(
-        &self,
-        name: &str,
-        stage: sys::SlangStage,
-    ) -> Result<Output<EntryPoint>> {
-        if self.kind != ComponentKind::Module {
-            return Err(Error::invalid_argument());
-        }
-        let name = CString::new(name).map_err(|_| Error::invalid_argument())?;
-        let mut raw_entry_point = ptr::null_mut();
-        let mut diagnostics = ptr::null_mut();
-        let status = unsafe {
-            sys::slang_module_find_and_check_entry_point(
-                self.inner.raw.as_ptr().cast::<sys::IModule>(),
-                name.as_ptr(),
-                stage,
-                &mut raw_entry_point,
-                &mut diagnostics,
-            )
-        };
-
-        let Some(raw_entry_point) =
-            ptr::NonNull::new(raw_entry_point.cast::<sys::IComponentType>())
-        else {
-            let diagnostics = diagnostics_from_raw(diagnostics);
-            return Err(Error::from_status_and_diagnostics(
-                if is_success(status) {
-                    sys::SLANG_FAIL
-                } else {
-                    status
-                },
-                diagnostics,
-            ));
-        };
-        if !is_success(status) {
-            unsafe { sys::slang_component_type_destroy(raw_entry_point.as_ptr()) };
-            return Err(Error::from_status_and_diagnostics(
-                status,
-                diagnostics_from_raw(diagnostics),
-            ));
-        }
-
-        finish(
-            status,
-            ComponentType::from_raw(
-                raw_entry_point,
-                self.inner.session.clone(),
-                ComponentKind::EntryPoint,
-            ),
-            diagnostics,
-        )
-    }
-
-    /// Returns the module name copied into an owned Rust string.
-    pub fn name(&self) -> Option<String> {
-        if self.kind != ComponentKind::Module {
-            return None;
-        }
-        let name =
-            unsafe { sys::slang_module_get_name(self.inner.raw.as_ptr().cast::<sys::IModule>()) };
-        c_string(name)
-    }
-
-    /// Returns the source file path copied into an owned Rust string.
-    pub fn file_path(&self) -> Option<String> {
-        if self.kind != ComponentKind::Module {
-            return None;
-        }
-        let path = unsafe {
-            sys::slang_module_get_file_path(self.inner.raw.as_ptr().cast::<sys::IModule>())
-        };
-        c_string(path)
     }
 
     /// Links this component graph and returns the linked component.
@@ -162,11 +149,9 @@ impl ComponentType {
 
         finish(
             status,
-            ComponentType::from_raw(
-                raw_linked,
-                self.inner.session.clone(),
-                ComponentKind::Linked,
-            ),
+            LinkedComponentType {
+                component: ComponentType::from_raw(raw_linked, self.inner.session.clone()),
+            },
             diagnostics,
         )
     }
@@ -271,6 +256,78 @@ impl ComponentType {
             }),
         };
         finish(status, layout, diagnostics)
+    }
+}
+
+impl Module {
+    /// Finds and validates an entry point in this module.
+    pub fn find_and_check_entry_point(
+        &self,
+        name: &str,
+        stage: sys::SlangStage,
+    ) -> Result<Output<EntryPoint>> {
+        let name = CString::new(name).map_err(|_| Error::invalid_argument())?;
+        let mut raw_entry_point = ptr::null_mut();
+        let mut diagnostics = ptr::null_mut();
+        let status = unsafe {
+            sys::slang_module_find_and_check_entry_point(
+                self.component.inner.raw.as_ptr().cast::<sys::IModule>(),
+                name.as_ptr(),
+                stage,
+                &mut raw_entry_point,
+                &mut diagnostics,
+            )
+        };
+
+        let Some(raw_entry_point) =
+            ptr::NonNull::new(raw_entry_point.cast::<sys::IComponentType>())
+        else {
+            let diagnostics = diagnostics_from_raw(diagnostics);
+            return Err(Error::from_status_and_diagnostics(
+                if is_success(status) {
+                    sys::SLANG_FAIL
+                } else {
+                    status
+                },
+                diagnostics,
+            ));
+        };
+        if !is_success(status) {
+            unsafe { sys::slang_component_type_destroy(raw_entry_point.as_ptr()) };
+            return Err(Error::from_status_and_diagnostics(
+                status,
+                diagnostics_from_raw(diagnostics),
+            ));
+        }
+
+        finish(
+            status,
+            EntryPoint {
+                component: ComponentType::from_raw(
+                    raw_entry_point,
+                    self.component.inner.session.clone(),
+                ),
+            },
+            diagnostics,
+        )
+    }
+
+    /// Returns the module name copied into an owned Rust string.
+    pub fn name(&self) -> Option<String> {
+        let name = unsafe {
+            sys::slang_module_get_name(self.component.inner.raw.as_ptr().cast::<sys::IModule>())
+        };
+        c_string(name)
+    }
+
+    /// Returns the source file path copied into an owned Rust string.
+    pub fn file_path(&self) -> Option<String> {
+        let path = unsafe {
+            sys::slang_module_get_file_path(
+                self.component.inner.raw.as_ptr().cast::<sys::IModule>(),
+            )
+        };
+        c_string(path)
     }
 }
 
