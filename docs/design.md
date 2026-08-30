@@ -122,9 +122,9 @@ context. Successful operations preserve the original non-negative
 `SlangResult` and expose warning/informational diagnostics alongside the owned
 result bytes.
 
-The native artifact shape remains intentionally undecided until the packaging
-step determines how the C ABI archive and its Slang static dependencies are
-published as GitHub Release assets.
+The native artifact shape is fixed by `scripts/package-native.ps1`: one
+deterministic ZIP contains the C ABI header, the facade archive, and the
+audited Slang static dependencies, plus a manifest and sibling SHA-256 file.
 
 ## Dependency policy
 
@@ -134,14 +134,18 @@ The initial pin is Slang `v2026.16.1`.
 
 ## Distribution
 
-The Rust crate stays small and selects a GitHub Release asset from the crate version and Rust target triple. The crate will embed immutable SHA-256 metadata and support local archives, mirrors, and persistent caches.
+The Rust crate stays small and selects a GitHub Release asset from the crate
+version and Rust target triple. It embeds immutable SHA-256 metadata and
+supports local archives, mirrors, and persistent caches. The current index
+contains `0.1.0` Windows x64 and Android ARM64 entries; the corresponding ZIPs
+are published under the `v0.1.0` GitHub Release path when that release is cut.
 
 Each native asset is named
 `slang-slim-native-v{version}-{rust-target}.zip`. It contains the public C
 header, the non-LTO static facade and its audited static dependencies, and a
 `manifest.json` that fixes library order, platform runtime/system libraries,
 file sizes, and per-file SHA-256 hashes. A sibling `.zip.sha256` file records
-the checksum that must be embedded in the published Rust crate before release.
+the checksum copied into the published Rust crate's artifact index.
 
 The dependencies remain separate archives inside the ZIP. This preserves the
 normal linker's selective object extraction and avoids rewriting upstream

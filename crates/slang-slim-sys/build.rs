@@ -13,7 +13,6 @@ use std::process::Command;
 const INDEX_JSON: &str = include_str!("native-artifacts.json");
 const MANIFEST_SCHEMA_VERSION: u32 = 1;
 const ABI_VERSION: u32 = 1;
-const DEVELOPMENT_VERSION: &str = "0.0.0";
 const SUPPORTED_TARGETS: [&str; 2] = ["x86_64-pc-windows-msvc", "aarch64-linux-android"];
 
 const ENV_NATIVE_DIR: &str = "SLANG_SLIM_NATIVE_DIR";
@@ -242,25 +241,28 @@ fn run() -> BuildResult<()> {
     }
 
     let native_required = env::var_os("CARGO_FEATURE_NATIVE").is_some();
-    if version == DEVELOPMENT_VERSION
+    if !native_required
+        && native_dir.is_none()
+        && native_build_dir.is_none()
+        && native_archive.is_none()
+        && !from_source
+    {
+        println!(
+            "cargo::warning=slang-slim-sys built without feature `native`; native linking is skipped. Set {ENV_NATIVE_ARCHIVE}, {ENV_NATIVE_DIR}, {ENV_NATIVE_BUILD_DIR}, or {ENV_FROM_SOURCE}=1 to exercise native linking"
+        );
+        return Ok(());
+    }
+    if native_required
         && release.is_none()
         && native_dir.is_none()
         && native_build_dir.is_none()
         && native_archive.is_none()
         && !from_source
     {
-        if native_required {
-            return Err(format!(
-                "native linking is required by feature `native`; set {ENV_NATIVE_ARCHIVE} (with a sibling .sha256 file), {ENV_NATIVE_DIR}, {ENV_NATIVE_BUILD_DIR}, or {ENV_FROM_SOURCE}=1"
-            )
-            .into());
-        }
-        println!(
-            "cargo::warning=slang-slim-sys {DEVELOPMENT_VERSION} is source-only; set \
-             {ENV_NATIVE_ARCHIVE}, {ENV_NATIVE_DIR}, {ENV_NATIVE_BUILD_DIR}, or {ENV_FROM_SOURCE}=1 \
-             to exercise native linking"
-        );
-        return Ok(());
+        return Err(format!(
+            "native linking is required by feature `native`; set {ENV_NATIVE_ARCHIVE} (with a sibling .sha256 file), {ENV_NATIVE_DIR}, {ENV_NATIVE_BUILD_DIR}, or {ENV_FROM_SOURCE}=1"
+        )
+        .into());
     }
 
     if !SUPPORTED_TARGETS.contains(&target.as_str()) {

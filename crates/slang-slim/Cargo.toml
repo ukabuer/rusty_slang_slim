@@ -1,6 +1,6 @@
 [package]
 name = "slang-slim"
-version = "0.0.0"
+version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 description = "Safe Rust bindings for the focused slang-slim shader compiler"
@@ -11,4 +11,4 @@ default = []
 native-tests = ["slang-slim-sys/native"]
 
 [dependencies]
-slang-slim-sys = { path = "../slang-slim-sys", version = "0.0.0" }
+slang-slim-sys = { path = "../slang-slim-sys", version = "0.1.0" }

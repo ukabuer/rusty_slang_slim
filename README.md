@@ -30,14 +30,16 @@ configured, run it with:
 
 ```powershell
 $env:SLANG_SLIM_NATIVE_ARCHIVE = `
-  "../../build/packages-current/slang-slim-native-v0.0.0-x86_64-pc-windows-msvc.zip"
+  "../../build/packages/slang-slim-native-v0.1.0-x86_64-pc-windows-msvc.zip"
 cargo build -p slang-slim --features native-tests --example multi_target_compile
 .\target\debug\examples\multi_target_compile.exe
 ```
 
 The archive's sibling `.zip.sha256` file is checked automatically. Without a
-native archive or source override, source checks still work, but native examples
-fail early with a configuration message instead of a linker error.
+native archive or source override, ordinary source checks still work. Native
+tests and examples use the matching release entry in
+`crates/slang-slim-sys/native-artifacts.json`; set a local archive or mirror
+when the corresponding GitHub Release asset is not available yet.
 
 When iterating on the native CMake build itself, set
 `SLANG_SLIM_NATIVE_BUILD_DIR` to `build/native/windows-x64` after the Release

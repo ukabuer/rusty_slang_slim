@@ -96,17 +96,18 @@ cmake --build --preset android-arm64-release --parallel
 ```
 
 Assets and their sibling SHA-256 files are written under `build/packages` by
-default. The ZIP manifest is the contract consumed by the later
-`slang-slim-sys` download/link step.
+default. The ZIP manifest is the contract consumed by the
+`slang-slim-sys` download/link step. Keep `-Version` synchronized with the
+crate version; the current checked-in index contains the two `0.1.0` assets.
 
 ## Exercise the Rust linker locally
 
-Before release metadata is published, point the sys crate at a locally packaged
-archive. Relative paths are resolved from `crates/slang-slim-sys`:
+For local validation, point the sys crate at a locally packaged archive.
+Relative paths are resolved from `crates/slang-slim-sys`:
 
 ```powershell
 $env:SLANG_SLIM_NATIVE_ARCHIVE = `
-  "../../build/packages/slang-slim-native-v0.0.0-x86_64-pc-windows-msvc.zip"
+  "../../build/packages/slang-slim-native-v0.1.0-x86_64-pc-windows-msvc.zip"
 cargo test -p slang-slim-sys
 Remove-Item Env:SLANG_SLIM_NATIVE_ARCHIVE
 ```
@@ -160,11 +161,11 @@ builds and installs the Windows host generators required by the Android Slang
 configuration. It is analogous to `rusty_v8`'s `V8_FROM_SOURCE=1` mode and is
 intended for maintainer/development builds, not published consumer builds.
 
-Version `0.0.0` remains source-only when neither local override is set. A real
-release adds immutable archive hashes to
-`crates/slang-slim-sys/native-artifacts.json`; only then is automatic download
-enabled for that crate version and target. `CARGO_NET_OFFLINE=true` and
-`SLANG_SLIM_DISABLE_DOWNLOAD=1` prohibit network fallback.
+The checked-in `0.1.0` metadata enables automatic download for the Windows and
+Android targets when the `native` feature is enabled. Builds without that
+feature remain source-only, so ordinary workspace checks do not need a native
+asset. `CARGO_NET_OFFLINE=true` and `SLANG_SLIM_DISABLE_DOWNLOAD=1` prohibit
+network fallback; provide a local archive or a populated cache in those modes.
 
 The first Windows release supports the dynamic MSVC CRT only. A Cargo build
 using `-C target-feature=+crt-static` is rejected until a matching static-CRT

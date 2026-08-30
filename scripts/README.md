@@ -17,6 +17,7 @@ SHA-256 file. Run it only after the corresponding Release preset succeeds:
   -Version 0.1.0
 ```
 
-Future scripts will cover release-asset validation.
+Keep `-Version` synchronized with the crate version. The checked-in release
+index currently contains the two `0.1.0` assets.
 
 Consumer `cargo build` must not invoke these scripts.
