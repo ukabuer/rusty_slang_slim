@@ -11,14 +11,14 @@ extern "C"
 
 #if defined(_WIN32) && defined(SLANG_C_API_BUILD_SHARED)
 #    if defined(SLANG_C_API_BUILDING)
-#        define SLANG_C_API_API __declspec(dllexport)
+#        define SLANG_C_API __declspec(dllexport)
 #    else
-#        define SLANG_C_API_API __declspec(dllimport)
+#        define SLANG_C_API __declspec(dllimport)
 #    endif
 #elif defined(__GNUC__) || defined(__clang__)
-#    define SLANG_C_API_API __attribute__((visibility("default")))
+#    define SLANG_C_API __attribute__((visibility("default")))
 #else
-#    define SLANG_C_API_API
+#    define SLANG_C_API
 #endif
 
 #define SLANG_C_API_ABI_VERSION 1u
@@ -323,91 +323,91 @@ typedef IComponentType IEntryPoint;
 typedef struct ProgramLayout ProgramLayout;
 
 /** Create and destroy a reusable global session. */
-SLANG_C_API_API SlangResult slang_create_global_session(
+SLANG_C_API SlangResult slang_create_global_session(
     const SlangGlobalSessionDesc* desc,
     IGlobalSession** out_global_session);
-SLANG_C_API_API void slang_global_session_destroy(IGlobalSession* global_session);
-SLANG_C_API_API const char* slang_global_session_get_build_tag(
+SLANG_C_API void slang_global_session_destroy(IGlobalSession* global_session);
+SLANG_C_API const char* slang_global_session_get_build_tag(
     const IGlobalSession* global_session);
-SLANG_C_API_API SlangProfileID slang_global_session_find_profile(
+SLANG_C_API SlangProfileID slang_global_session_find_profile(
     const IGlobalSession* global_session,
     const char* name);
-SLANG_C_API_API SlangResult slang_global_session_check_compile_target_support(
+SLANG_C_API SlangResult slang_global_session_check_compile_target_support(
     const IGlobalSession* global_session,
     SlangCompileTarget target);
-SLANG_C_API_API SlangResult slang_global_session_create_session(
+SLANG_C_API SlangResult slang_global_session_create_session(
     const IGlobalSession* global_session,
     const SlangSessionDesc* desc,
     ISession** out_session);
 
 /** Create and destroy the virtual-file-system adapter used by SessionDesc. */
-SLANG_C_API_API SlangResult slang_file_system_create(
+SLANG_C_API SlangResult slang_file_system_create(
     const SlangFileSystemDesc* desc,
     ISlangFileSystem** out_file_system);
-SLANG_C_API_API void slang_file_system_destroy(ISlangFileSystem* file_system);
+SLANG_C_API void slang_file_system_destroy(ISlangFileSystem* file_system);
 
 /** The stable-ABI counterpart of Slang's slang_createBlob helper. */
-SLANG_C_API_API SlangResult slang_create_blob(
+SLANG_C_API SlangResult slang_create_blob(
     const void* data,
     size_t size,
     ISlangBlob** out_blob);
 
-SLANG_C_API_API void slang_session_destroy(ISession* session);
-SLANG_C_API_API SlangResult slang_session_load_module_from_source(
+SLANG_C_API void slang_session_destroy(ISession* session);
+SLANG_C_API SlangResult slang_session_load_module_from_source(
     ISession* session,
     const char* module_name,
     const char* path,
     ISlangBlob* source,
     ISlangBlob** out_diagnostics,
     IModule** out_module);
-SLANG_C_API_API SlangResult slang_session_create_composite_component_type(
+SLANG_C_API SlangResult slang_session_create_composite_component_type(
     ISession* session,
     IComponentType* const* component_types,
     SlangInt component_type_count,
     IComponentType** out_component_type,
     ISlangBlob** out_diagnostics);
 
-SLANG_C_API_API SlangResult slang_module_find_and_check_entry_point(
+SLANG_C_API SlangResult slang_module_find_and_check_entry_point(
     IModule* module,
     const char* name,
     SlangStage stage,
     IEntryPoint** out_entry_point,
     ISlangBlob** out_diagnostics);
-SLANG_C_API_API const char* slang_module_get_name(const IModule* module);
-SLANG_C_API_API const char* slang_module_get_file_path(const IModule* module);
+SLANG_C_API const char* slang_module_get_name(const IModule* module);
+SLANG_C_API const char* slang_module_get_file_path(const IModule* module);
 
-SLANG_C_API_API void slang_component_type_destroy(IComponentType* component_type);
-SLANG_C_API_API SlangResult slang_component_type_link(
+SLANG_C_API void slang_component_type_destroy(IComponentType* component_type);
+SLANG_C_API SlangResult slang_component_type_link(
     IComponentType* component_type,
     IComponentType** out_linked_component_type,
     ISlangBlob** out_diagnostics);
-SLANG_C_API_API SlangResult slang_component_type_get_target_code(
+SLANG_C_API SlangResult slang_component_type_get_target_code(
     IComponentType* component_type,
     SlangInt target_index,
     ISlangBlob** out_code,
     ISlangBlob** out_diagnostics);
-SLANG_C_API_API SlangResult slang_component_type_get_entry_point_code(
+SLANG_C_API SlangResult slang_component_type_get_entry_point_code(
     IComponentType* component_type,
     SlangInt entry_point_index,
     SlangInt target_index,
     ISlangBlob** out_code,
     ISlangBlob** out_diagnostics);
-SLANG_C_API_API SlangResult slang_component_type_get_layout(
+SLANG_C_API SlangResult slang_component_type_get_layout(
     IComponentType* component_type,
     SlangInt target_index,
     ProgramLayout** out_layout,
     ISlangBlob** out_diagnostics);
 
-SLANG_C_API_API void slang_program_layout_destroy(ProgramLayout* layout);
-SLANG_C_API_API SlangResult slang_program_layout_to_json(
+SLANG_C_API void slang_program_layout_destroy(ProgramLayout* layout);
+SLANG_C_API SlangResult slang_program_layout_to_json(
     ProgramLayout* layout,
     ISlangBlob** out_json);
 
-SLANG_C_API_API void slang_blob_destroy(ISlangBlob* blob);
-SLANG_C_API_API const void* slang_blob_get_buffer_pointer(ISlangBlob* blob);
-SLANG_C_API_API size_t slang_blob_get_buffer_size(ISlangBlob* blob);
+SLANG_C_API void slang_blob_destroy(ISlangBlob* blob);
+SLANG_C_API const void* slang_blob_get_buffer_pointer(ISlangBlob* blob);
+SLANG_C_API size_t slang_blob_get_buffer_size(ISlangBlob* blob);
 
-SLANG_C_API_API uint32_t slang_abi_version(void);
+SLANG_C_API uint32_t slang_abi_version(void);
 
 #ifdef __cplusplus
 }

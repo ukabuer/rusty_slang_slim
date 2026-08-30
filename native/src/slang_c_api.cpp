@@ -252,7 +252,7 @@ void destroyRawHandle(Handle* handle, Reset&& reset) noexcept
 
 extern "C"
 {
-SLANG_C_API_API SlangResult slang_create_global_session(
+SLANG_C_API SlangResult slang_create_global_session(
     const SlangGlobalSessionDesc* desc,
     IGlobalSession** outGlobalSession)
 {
@@ -279,14 +279,14 @@ SLANG_C_API_API SlangResult slang_create_global_session(
     }
 }
 
-SLANG_C_API_API void slang_global_session_destroy(IGlobalSession* globalSession)
+SLANG_C_API void slang_global_session_destroy(IGlobalSession* globalSession)
 {
     destroyRawHandle(globalSession, [](GlobalSession* value) {
         value->native.setNull();
     });
 }
 
-SLANG_C_API_API const char* slang_global_session_get_build_tag(
+SLANG_C_API const char* slang_global_session_get_build_tag(
     const IGlobalSession* globalSession)
 {
     if (!globalSession || !globalSession->native)
@@ -303,7 +303,7 @@ SLANG_C_API_API const char* slang_global_session_get_build_tag(
     }
 }
 
-SLANG_C_API_API SlangProfileID slang_global_session_find_profile(
+SLANG_C_API SlangProfileID slang_global_session_find_profile(
     const IGlobalSession* globalSession,
     const char* name)
 {
@@ -321,7 +321,7 @@ SLANG_C_API_API SlangProfileID slang_global_session_find_profile(
     }
 }
 
-SLANG_C_API_API SlangResult slang_global_session_check_compile_target_support(
+SLANG_C_API SlangResult slang_global_session_check_compile_target_support(
     const IGlobalSession* globalSession,
     SlangCompileTarget target)
 {
@@ -343,7 +343,7 @@ SLANG_C_API_API SlangResult slang_global_session_check_compile_target_support(
     }
 }
 
-SLANG_C_API_API SlangResult slang_global_session_create_session(
+SLANG_C_API SlangResult slang_global_session_create_session(
     const IGlobalSession* globalSession,
     const SlangSessionDesc* desc,
     ISession** outSession)
@@ -374,7 +374,7 @@ SLANG_C_API_API SlangResult slang_global_session_create_session(
     }
 }
 
-SLANG_C_API_API SlangResult slang_file_system_create(
+SLANG_C_API SlangResult slang_file_system_create(
     const SlangFileSystemDesc* desc,
     ISlangFileSystem** outFileSystem)
 {
@@ -404,7 +404,7 @@ SLANG_C_API_API SlangResult slang_file_system_create(
     }
 }
 
-SLANG_C_API_API void slang_file_system_destroy(ISlangFileSystem* fileSystem)
+SLANG_C_API void slang_file_system_destroy(ISlangFileSystem* fileSystem)
 {
     if (!fileSystem)
         return;
@@ -418,7 +418,7 @@ SLANG_C_API_API void slang_file_system_destroy(ISlangFileSystem* fileSystem)
     }
 }
 
-SLANG_C_API_API SlangResult slang_create_blob(
+SLANG_C_API SlangResult slang_create_blob(
     const void* data,
     size_t size,
     ISlangBlob** outBlob)
@@ -431,7 +431,7 @@ SLANG_C_API_API SlangResult slang_create_blob(
     return *outBlob ? SLANG_OK : SLANG_E_OUT_OF_MEMORY;
 }
 
-SLANG_C_API_API void slang_session_destroy(ISession* session)
+SLANG_C_API void slang_session_destroy(ISession* session)
 {
     destroyRawHandle(session, [](Session* value) {
         value->native.setNull();
@@ -439,7 +439,7 @@ SLANG_C_API_API void slang_session_destroy(ISession* session)
     });
 }
 
-SLANG_C_API_API SlangResult slang_session_load_module_from_source(
+SLANG_C_API SlangResult slang_session_load_module_from_source(
     ISession* session,
     const char* moduleName,
     const char* path,
@@ -482,7 +482,7 @@ SLANG_C_API_API SlangResult slang_session_load_module_from_source(
     }
 }
 
-SLANG_C_API_API SlangResult slang_session_create_composite_component_type(
+SLANG_C_API SlangResult slang_session_create_composite_component_type(
     ISession* session,
     IComponentType* const* componentTypes,
     SlangInt componentTypeCount,
@@ -535,7 +535,7 @@ SLANG_C_API_API SlangResult slang_session_create_composite_component_type(
     }
 }
 
-SLANG_C_API_API SlangResult slang_module_find_and_check_entry_point(
+SLANG_C_API SlangResult slang_module_find_and_check_entry_point(
     IModule* module,
     const char* name,
     SlangStage stage,
@@ -577,7 +577,7 @@ SLANG_C_API_API SlangResult slang_module_find_and_check_entry_point(
     }
 }
 
-SLANG_C_API_API const char* slang_module_get_name(const IModule* module)
+SLANG_C_API const char* slang_module_get_name(const IModule* module)
 {
     if (!module || !module->module)
         return nullptr;
@@ -593,7 +593,7 @@ SLANG_C_API_API const char* slang_module_get_name(const IModule* module)
     }
 }
 
-SLANG_C_API_API const char* slang_module_get_file_path(const IModule* module)
+SLANG_C_API const char* slang_module_get_file_path(const IModule* module)
 {
     if (!module || !module->module)
         return nullptr;
@@ -609,7 +609,7 @@ SLANG_C_API_API const char* slang_module_get_file_path(const IModule* module)
     }
 }
 
-SLANG_C_API_API void slang_component_type_destroy(IComponentType* componentType)
+SLANG_C_API void slang_component_type_destroy(IComponentType* componentType)
 {
     destroyRawHandle(componentType, [](ComponentType* value) {
         value->native.setNull();
@@ -618,7 +618,7 @@ SLANG_C_API_API void slang_component_type_destroy(IComponentType* componentType)
     });
 }
 
-SLANG_C_API_API SlangResult slang_component_type_link(
+SLANG_C_API SlangResult slang_component_type_link(
     IComponentType* componentType,
     IComponentType** outLinkedComponentType,
     ISlangBlob** outDiagnostics)
@@ -651,7 +651,7 @@ SLANG_C_API_API SlangResult slang_component_type_link(
     }
 }
 
-SLANG_C_API_API SlangResult slang_component_type_get_target_code(
+SLANG_C_API SlangResult slang_component_type_get_target_code(
     IComponentType* componentType,
     SlangInt targetIndex,
     ISlangBlob** outCode,
@@ -686,7 +686,7 @@ SLANG_C_API_API SlangResult slang_component_type_get_target_code(
     }
 }
 
-SLANG_C_API_API SlangResult slang_component_type_get_entry_point_code(
+SLANG_C_API SlangResult slang_component_type_get_entry_point_code(
     IComponentType* componentType,
     SlangInt entryPointIndex,
     SlangInt targetIndex,
@@ -723,7 +723,7 @@ SLANG_C_API_API SlangResult slang_component_type_get_entry_point_code(
     }
 }
 
-SLANG_C_API_API SlangResult slang_component_type_get_layout(
+SLANG_C_API SlangResult slang_component_type_get_layout(
     IComponentType* componentType,
     SlangInt targetIndex,
     ProgramLayout** outLayout,
@@ -762,7 +762,7 @@ SLANG_C_API_API SlangResult slang_component_type_get_layout(
     }
 }
 
-SLANG_C_API_API void slang_program_layout_destroy(ProgramLayout* layout)
+SLANG_C_API void slang_program_layout_destroy(ProgramLayout* layout)
 {
     destroyRawHandle(layout, [](ProgramLayout* value) {
         value->native = nullptr;
@@ -770,7 +770,7 @@ SLANG_C_API_API void slang_program_layout_destroy(ProgramLayout* layout)
     });
 }
 
-SLANG_C_API_API SlangResult slang_program_layout_to_json(
+SLANG_C_API SlangResult slang_program_layout_to_json(
     ProgramLayout* layout,
     ISlangBlob** outJson)
 {
@@ -795,7 +795,7 @@ SLANG_C_API_API SlangResult slang_program_layout_to_json(
     }
 }
 
-SLANG_C_API_API void slang_blob_destroy(ISlangBlob* blob)
+SLANG_C_API void slang_blob_destroy(ISlangBlob* blob)
 {
     if (!blob)
         return;
@@ -809,18 +809,18 @@ SLANG_C_API_API void slang_blob_destroy(ISlangBlob* blob)
     }
 }
 
-SLANG_C_API_API const void* slang_blob_get_buffer_pointer(
+SLANG_C_API const void* slang_blob_get_buffer_pointer(
     ISlangBlob* blob)
 {
     return blob ? blob->getBufferPointer() : nullptr;
 }
 
-SLANG_C_API_API size_t slang_blob_get_buffer_size(ISlangBlob* blob)
+SLANG_C_API size_t slang_blob_get_buffer_size(ISlangBlob* blob)
 {
     return blob ? blob->getBufferSize() : 0;
 }
 
-SLANG_C_API_API uint32_t slang_abi_version(void)
+SLANG_C_API uint32_t slang_abi_version(void)
 {
     return SLANG_C_API_ABI_VERSION;
 }
