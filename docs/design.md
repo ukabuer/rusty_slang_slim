@@ -48,12 +48,45 @@ The ABI will expose only:
 - Explicit ownership and destruction functions.
 
 The first native slice implements this surface in `native/include/slang_slim.h`.
+It is a project-owned C ABI whose numeric target and stage values, descriptor
+field meanings, and default target/session settings intentionally follow the
+corresponding Slang API. This keeps the Rust layer close to Slang's model while
+avoiding exposure of Slang's C++ ABI. The native C++ facade is an implementation
+detail for the Rust binding; downstream C++ source or binary compatibility is
+not a supported use case.
+
+Target descriptors accept either the original three convenience identifiers or
+SlangCompileTarget-compatible format values with an optional profile name.
+Unknown formats are passed through to Slang and reported as unsupported only
+when the selected native build cannot provide the requested profile/backend;
+capability queries recognize the profile and platform policy, while the
+compile result remains authoritative for optional downstream tools.
+The platform policy is intentionally small: Android assets accept SPIR-V only;
+Windows assets retain the generic target path so future release builds can add
+formats without changing the C ABI. `struct_size` prefixes allow newer fields
+to be appended without invalidating callers compiled against an older prefix.
+
 Status values are owned by slang-slim rather than exposing Slang's HRESULT-like
 codes. A compile result owns all generated blobs and diagnostics; callers only
 borrow `slang_slim_blob` views until `slang_slim_compilation_destroy` is called.
 Descriptors and their pointed-to data are borrowed for the duration of the
 compile call. Virtual-file callbacks are synchronous and receive normalized
-UTF-8 paths; returned bytes are copied before the callback returns.
+UTF-8 paths; returned bytes are copied before the callback returns. Session
+search paths, matrix layout, GLSL syntax, effect annotations, and SPIR-V
+validation settings and generic compiler-option entries are copied into the
+Slang session when the corresponding descriptor suffix is present. Target
+descriptors carry the equivalent per-target option array. Option names and
+value kinds use the numeric values from Slang's public API, so a newer caller
+can pass an option not yet given a slang-slim convenience constant.
+
+Slang work is serialized on a dedicated worker thread; this also keeps
+callbacks synchronous without allowing concurrent access to Slang's mutable
+linkage state. Generated blobs are copied into the result before the worker
+releases its temporary component graph. VFS-backed Slang sessions remain
+resident until process exit because the pinned compiler retains cache state
+that is not safe to tear down between custom-file-system compilations. The
+worker's global session is likewise intentionally kept alive through process
+exit; this avoids teardown-order failures in the upstream static build.
 
 The native artifact shape remains intentionally undecided until the packaging
 step determines how the C ABI archive and its Slang static dependencies are
