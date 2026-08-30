@@ -28,7 +28,11 @@ SPIR-V 1.3 output is validated against the Vulkan 1.1 environment.
 
 ## Reflection
 
-Reflection is returned as one Slang-generated JSON blob per target. Slang reflection objects are not exposed across the C ABI. A future safe Rust crate may deserialize the JSON into owned Rust data structures without changing the native ABI.
+Reflection is returned as one Slang-generated JSON blob per target. Slang
+reflection objects are not exposed across the C ABI. The safe Rust crate
+returns the JSON as owned `Vec<u8>` (or a lossy UTF-8 `String` convenience
+method); typed reflection structures can be added later without changing the
+native ABI.
 
 ## Virtual file system
 
@@ -102,12 +106,21 @@ internal COM-style references (including any cache wrapper) and releases it
 when the session/linkage graph is destroyed.
 
 The C ABI only owns the native adapter object. A Rust callback's `userData`
-is outside Slang's ownership model, so a safe wrapper must keep that state
-alive for at least as long as the native file-system handle can be called
-(normally by retaining an `Arc` alongside the session and derived component
-handles). Holding only the opaque native handle is sound for the Slang object
+is outside Slang's ownership model, so the safe wrapper keeps that state alive
+for at least as long as the native file-system handle can be called. The
+wrapper retains the callback state alongside the file-system adapter and
+clones that keepalive into each created session; derived components retain the
+session. Holding only the opaque native handle is sound for the Slang object
 itself, but not for an arbitrary Rust callback context unless that context is
 otherwise process-owned.
+
+The safe wrapper keeps native handles in non-`Send`/non-`Sync` Rust owners and
+does not introduce a worker or global mutex. Its VFS callback state is
+type-erased and retained independently, with `Send + Sync` bounds because the
+underlying Slang implementation may invoke the callback from its own execution
+context. Successful operations preserve the original non-negative
+`SlangResult` and expose warning/informational diagnostics alongside the owned
+result bytes.
 
 The native artifact shape remains intentionally undecided until the packaging
 step determines how the C ABI archive and its Slang static dependencies are

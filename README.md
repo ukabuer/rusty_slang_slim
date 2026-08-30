@@ -12,10 +12,16 @@ The initial release is intentionally limited to:
 
 Consumers will download prebuilt native archives from GitHub Releases. Building Slang from source is a maintainer workflow, not part of a consumer `cargo build`.
 
-The repository currently contains only the raw `slang-slim-sys` crate. Its
-API follows Slang's global-session/session/module/component flow through an
-opaque stable C ABI.
-A safe `slang-slim` crate may be added later.
+The repository contains two layers. `slang-slim-sys` exposes the raw stable C
+ABI with Slang-shaped records and constants. `slang-slim` adds the safe Rust
+object flow, deterministic native-handle cleanup, owned code/diagnostic bytes,
+and a Rust virtual file-system callback. The safe layer keeps the same
+global-session/session/module/component workflow without adding native worker
+threads.
+
+The optional `native-tests` feature enables an integration test when a local
+native archive is available; ordinary source checks do not require a native
+artifact.
 
 See [docs/design.md](docs/design.md) for the frozen v0.1 scope and
 [docs/building.md](docs/building.md) for maintainer build baselines.

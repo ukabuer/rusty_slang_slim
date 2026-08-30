@@ -1,8 +1,7 @@
 [workspace]
-members = ["crates/slang-slim-sys"]
+members = ["crates/slang-slim-sys", "crates/slang-slim"]
 resolver = "3"
 
 [workspace.package]
 edition = "2024"
 rust-version = "1.85"
-
