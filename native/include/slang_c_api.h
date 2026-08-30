@@ -38,6 +38,9 @@ extern "C"
  */
 
 #ifndef SLANG_H
+/* SlangResult follows HRESULT semantics: negative values are failures and
+ * zero or positive values are successes. Diagnostics may accompany either a
+ * successful or failed operation through an out_diagnostics blob. */
 typedef int32_t SlangResult;
 typedef int32_t SlangInt32;
 typedef uint32_t SlangUInt32;
@@ -281,12 +284,21 @@ typedef struct SlangSessionDesc
     uint8_t _skipSPIRVValidationPadding[3];
 } SlangSessionDesc;
 
+/* Descriptor pointers and strings are borrowed for the duration of
+ * slang_global_session_create_session; Slang copies the session settings it
+ * retains after that call. */
+
 /* C projections of the records that live in namespace `slang` upstream. */
 typedef SlangTargetDesc TargetDesc;
 typedef SlangPreprocessorMacroDesc PreprocessorMacroDesc;
 typedef SlangSessionDesc SessionDesc;
 
-/** Callback-shaped projection of ISlangFileSystem::loadFile. */
+/**
+ * Callback-shaped projection of ISlangFileSystem::loadFile. Slang invokes
+ * this synchronously while loading a module; the adapter does not own
+ * `userData`, so its owner must outlive every Slang object that can retain the
+ * file-system handle.
+ */
 typedef SlangResult (*SlangLoadFileFunc)(
     void* userData,
     const char* path,

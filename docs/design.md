@@ -89,14 +89,25 @@ duration of the underlying Slang call. Virtual-file callbacks are synchronous
 and receive normalized UTF-8 paths; returned blobs follow Slang's normal
 ownership contract.
 
-Slang work is serialized on a dedicated worker thread; this also keeps
-callbacks synchronous without allowing concurrent access to Slang's mutable
-linkage state. Generated blobs are copied into the result before the worker
-releases its temporary component graph. VFS-backed Slang sessions remain
-resident until process exit because the pinned compiler retains cache state
-that is not safe to tear down between custom-file-system compilations. The
-worker's global session is likewise intentionally kept alive through process
-exit; this avoids teardown-order failures in the upstream static build.
+As in Slang, a non-negative `SlangResult` is success; a warning or informational
+diagnostic does not turn a successful call into an error. Callers should always
+consume the optional diagnostic blob before deciding how to present the result.
+
+Slang calls are synchronous on the calling thread. The bridge does not add a
+worker, thread-affinity rule, or process-lifetime session retention: callers
+must apply the same synchronization required by Slang's own API. Returned
+code, reflection, and diagnostics are exposed as owned blob references. When
+a custom file system is passed to a session, Slang retains it through its
+internal COM-style references (including any cache wrapper) and releases it
+when the session/linkage graph is destroyed.
+
+The C ABI only owns the native adapter object. A Rust callback's `userData`
+is outside Slang's ownership model, so a safe wrapper must keep that state
+alive for at least as long as the native file-system handle can be called
+(normally by retaining an `Arc` alongside the session and derived component
+handles). Holding only the opaque native handle is sound for the Slang object
+itself, but not for an arbitrary Rust callback context unless that context is
+otherwise process-owned.
 
 The native artifact shape remains intentionally undecided until the packaging
 step determines how the C ABI archive and its Slang static dependencies are

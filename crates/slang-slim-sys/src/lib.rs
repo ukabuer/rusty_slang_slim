@@ -4,6 +4,10 @@
 //! upstream scalar values and descriptor layouts directly. Native artifact
 //! selection and linker directives remain in `build.rs`, so this crate can be
 //! checked before a release asset is available locally.
+//!
+//! Calls are synchronous on the caller's thread; Slang's own synchronization
+//! requirements apply. A non-negative `SlangResult` is success, and optional
+//! diagnostic blobs may still contain warnings or informational messages.
 
 #![no_std]
 
@@ -13,6 +17,9 @@ use core::ffi::{c_char, c_void};
 pub const ABI_VERSION: u32 = 1;
 pub const SLANG_C_API_ABI_VERSION: u32 = ABI_VERSION;
 
+/// SlangResult uses HRESULT semantics: negative values indicate failure;
+/// zero and positive values indicate success. Diagnostics can be returned for
+/// either result through the diagnostic blob out-parameters.
 pub type SlangResult = i32;
 pub const SLANG_OK: SlangResult = 0;
 pub const SLANG_FAIL: SlangResult = -2_147_467_259;

@@ -117,7 +117,7 @@ int main()
 
     IGlobalSession* global = nullptr;
     SlangResult status = slang_create_global_session(&globalDesc, &global);
-    if (status != SLANG_OK || !global)
+    if (SLANG_FAILED(status) || !global)
     {
         std::cerr << "failed to create global session: " << status << '\n';
         return 1;
@@ -145,7 +145,7 @@ int main()
     fileSystemDesc.loadFile = loadVirtualFile;
     ISlangFileSystem* fileSystem = nullptr;
     status = slang_file_system_create(&fileSystemDesc, &fileSystem);
-    if (status != SLANG_OK || !fileSystem)
+    if (SLANG_FAILED(status) || !fileSystem)
     {
         std::cerr << "failed to create file system: " << status << '\n';
         slang_global_session_destroy(global);
@@ -160,7 +160,7 @@ int main()
 
     ISession* session = nullptr;
     status = slang_global_session_create_session(global, &sessionDesc, &session);
-    if (status != SLANG_OK || !session)
+    if (SLANG_FAILED(status) || !session)
     {
         std::cerr << "failed to create session: " << status << '\n';
         slang_file_system_destroy(fileSystem);
@@ -168,11 +168,16 @@ int main()
         return 1;
     }
 
+    // Session creation transfers an additional reference to Slang's linkage;
+    // the caller may release its original handle immediately.
+    slang_file_system_destroy(fileSystem);
+    fileSystem = nullptr;
+
     ISlangBlob* source = nullptr;
     status = slang_create_blob(kSource, sizeof(kSource) - 1, &source);
     IModule* module = nullptr;
     ISlangBlob* diagnostics = nullptr;
-    if (status == SLANG_OK)
+    if (SLANG_SUCCEEDED(status))
         status = slang_session_load_module_from_source(
             session,
             "slang_c_api_abi_test",
@@ -181,7 +186,7 @@ int main()
             &diagnostics,
             &module);
     releaseBlob(source);
-    if (status != SLANG_OK || !module)
+    if (SLANG_FAILED(status) || !module)
     {
         printBlob("module diagnostics", diagnostics);
         releaseBlob(diagnostics);
@@ -201,7 +206,7 @@ int main()
             kEntries[index].stage,
             &entryPoints[index],
             &diagnostics);
-        if (status != SLANG_OK || !entryPoints[index])
+        if (SLANG_FAILED(status) || !entryPoints[index])
         {
             printBlob("entry point diagnostics", diagnostics);
             releaseBlob(diagnostics);
@@ -230,7 +235,7 @@ int main()
         &program,
         &diagnostics);
     releaseBlob(diagnostics);
-    if (status != SLANG_OK || !program)
+    if (SLANG_FAILED(status) || !program)
     {
         slang_component_type_destroy(module);
         for (auto*& entryPoint : entryPoints)
@@ -243,7 +248,7 @@ int main()
 
     IComponentType* linked = nullptr;
     status = slang_component_type_link(program, &linked, &diagnostics);
-    if (status != SLANG_OK || !linked)
+    if (SLANG_FAILED(status) || !linked)
     {
         printBlob("link diagnostics", diagnostics);
         releaseBlob(diagnostics);
@@ -262,7 +267,7 @@ int main()
     {
         ProgramLayout* layout = nullptr;
         status = slang_component_type_get_layout(linked, targetIndex, &layout, &diagnostics);
-        if (status != SLANG_OK || !layout)
+        if (SLANG_FAILED(status) || !layout)
         {
             printBlob("layout diagnostics", diagnostics);
             releaseBlob(diagnostics);
@@ -280,7 +285,7 @@ int main()
 
         ISlangBlob* reflection = nullptr;
         status = slang_program_layout_to_json(layout, &reflection);
-        if (status != SLANG_OK || !contains(reflection, "vertex_main") ||
+        if (SLANG_FAILED(status) || !contains(reflection, "vertex_main") ||
             !contains(reflection, "fragment_main") || !contains(reflection, "compute_main"))
         {
             printBlob("reflection", reflection);
@@ -307,7 +312,7 @@ int main()
                 static_cast<SlangInt>(targetIndex),
                 &code,
                 &diagnostics);
-            if (status != SLANG_OK || !code ||
+            if (SLANG_FAILED(status) || !code ||
                 slang_blob_get_buffer_size(code) == 0)
             {
                 printBlob("code diagnostics", diagnostics);

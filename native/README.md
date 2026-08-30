@@ -30,8 +30,16 @@ implementation details used to provide the Rust binding; no downstream C++
 compatibility promise is made. See `docs/design.md` for the ownership and
 source-model decisions.
 
-Calls into Slang are serialized on one worker thread. Results own copied code,
-reflection, and diagnostics; VFS-backed Slang sessions are retained for the
-worker lifetime to preserve upstream cache safety across repeated compiles.
+`SlangResult` keeps Slang's HRESULT convention: values below zero are failures,
+while zero and positive values are successes. Compilation APIs return warning
+and informational text through their diagnostic blob even when the result is
+successful; callers should inspect the result sign rather than compare it to
+`SLANG_OK`.
+
+Calls into Slang run synchronously on the calling thread and follow Slang's
+own synchronization contract; the bridge does not create a worker or add a
+thread-affinity policy. Results own the references returned by Slang for code,
+reflection, and diagnostics. A VFS handle is retained by Slang's session and
+released through the normal COM-style reference counting path.
 
 See `docs/building.md` for bootstrap and build commands.

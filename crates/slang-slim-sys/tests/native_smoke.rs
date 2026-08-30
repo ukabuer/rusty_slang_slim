@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use slang_slim_sys::{
     ABI_VERSION, FileSystem, IBlob, K_DEFAULT_TARGET_FLAGS, Module, ProgramLayout,
     SLANG_C_API_ABI_VERSION, SLANG_E_INVALID_ARG, SLANG_E_NOT_FOUND, SLANG_HLSL,
-    SLANG_LANGUAGE_VERSION_2025, SLANG_METAL, SLANG_OK, SLANG_PROFILE_UNKNOWN, SLANG_SPIRV,
+    SLANG_LANGUAGE_VERSION_2025, SLANG_METAL, SLANG_PROFILE_UNKNOWN, SLANG_SPIRV,
     SLANG_STAGE_COMPUTE, SLANG_STAGE_FRAGMENT, SLANG_STAGE_VERTEX, Session, SlangCompileTarget,
     SlangFileSystemDesc, SlangGlobalSessionDesc, SlangLoadFileFunc, SlangResult, SlangSessionDesc,
     SlangStage, SlangTargetDesc, slang_abi_version, slang_blob_destroy,
@@ -74,7 +74,7 @@ unsafe fn release_blob(blob: &mut *mut IBlob) {
 }
 
 unsafe fn raw_assert_success(status: SlangResult, diagnostics: *mut IBlob, context: &str) {
-    if status == SLANG_OK {
+    if status >= 0 {
         let mut diagnostics = diagnostics;
         unsafe { release_blob(&mut diagnostics) };
         return;
@@ -203,6 +203,10 @@ fn slang_c_api_is_callable_from_rust() {
             ptr::null_mut(),
             "create session",
         );
+        // Slang retains the file-system interface from the session descriptor;
+        // the caller's original reference can be released immediately.
+        slang_file_system_destroy(file_system);
+        file_system = ptr::null_mut();
 
         let module_name = CString::new("raw_slang_c_api").unwrap();
         let source_path = CString::new("main.hlsl").unwrap();
