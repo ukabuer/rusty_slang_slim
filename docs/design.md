@@ -32,22 +32,24 @@ Reflection is returned as one Slang-generated JSON blob per target. Slang reflec
 
 ## Virtual file system
 
-The native ABI will support synchronous file-loading callbacks and in-memory virtual files. The C++ facade will adapt these callbacks to Slang's file-system interfaces and will own any blobs passed to Slang.
+The native ABI supports a synchronous file-loading callback adapter for
+Slang's `ISlangFileSystem`. The callback adapter follows Slang's normal blob
+ownership contract and does not expose a C++ vtable to Rust.
 
 The design must account for path normalization, unique file identities, `#pragma once`, cache invalidation, and the prohibition on unwinding through C callbacks.
 
 ## Native ABI
 
-The ABI will expose only:
+The ABI exposes only:
 
-- ABI, build, and supported-target queries.
-- Opaque compiler and result handles.
-- Compilation request descriptors with `struct_size` fields.
-- Entry-point, target, define, source, and virtual-file arrays.
-- Byte blobs, target-specific reflection JSON, and diagnostics.
-- Explicit ownership and destruction functions.
+- The Slang-shaped global-session/session/component flow, with opaque handles
+  for C++ interfaces that cannot cross a stable C ABI.
+- Slang-compatible scalar values, descriptors, result codes, and returned
+  `ISlangBlob` references.
+- The minimum C callback adapter needed to implement `ISlangFileSystem` from
+  Rust.
 
-The first native slice implements this surface in `native/include/slang_slim.h`.
+The native slice implements this surface in `native/include/slang_c_api.h`.
 It is a project-owned C ABI whose numeric target and stage values, descriptor
 field meanings, and default target/session settings intentionally follow the
 corresponding Slang API. This keeps the Rust layer close to Slang's model while
@@ -55,29 +57,37 @@ avoiding exposure of Slang's C++ ABI. The native C++ facade is an implementation
 detail for the Rust binding; downstream C++ source or binary compatibility is
 not a supported use case.
 
-Target descriptors accept either the original three convenience identifiers or
-SlangCompileTarget-compatible format values with an optional profile name.
-Unknown formats are passed through to Slang and reported as unsupported only
-when the selected native build cannot provide the requested profile/backend;
-capability queries recognize the profile and platform policy, while the
-compile result remains authoritative for optional downstream tools.
+The API mirrors Slang's object flow: create a global session,
+create a session from `TargetDesc`-shaped records, load a module, find/check
+entry points, compose and link component types, then request target code and a
+program-layout reflection blob. These raw handles use `SlangResult`-compatible
+return values and return an owned reference to Slang's `ISlangBlob`; the ABI
+accessors expose its `getBufferPointer`/`getBufferSize` data without exposing
+the C++ vtable. Exported functions use the `slang_` symbol namespace and the
+Rust sys crate exposes the same Slang-shaped type and constant names. The
+native C++ facade is an implementation detail for the Rust binding.
+
+The raw `SlangTargetDesc` takes the upstream `SlangCompileTarget` and
+`SlangProfileID` values directly. Unknown formats are passed through to Slang
+and reported as unsupported only when the selected native build cannot provide
+the requested profile/backend; capability queries recognize the profile and
+platform policy, while the compile result remains authoritative for optional
+downstream tools.
 The platform policy is intentionally small: Android assets accept SPIR-V only;
 Windows assets retain the generic target path so future release builds can add
-formats without changing the C ABI. `struct_size` prefixes allow newer fields
-to be appended without invalidating callers compiled against an older prefix.
+formats without changing the C ABI. The raw descriptors use Slang's
+`structureSize` prefixes, allowing newer fields to be appended without
+invalidating callers compiled against an older prefix.
 
-Status values are owned by slang-slim rather than exposing Slang's HRESULT-like
-codes. A compile result owns all generated blobs and diagnostics; callers only
-borrow `slang_slim_blob` views until `slang_slim_compilation_destroy` is called.
-Descriptors and their pointed-to data are borrowed for the duration of the
-compile call. Virtual-file callbacks are synchronous and receive normalized
-UTF-8 paths; returned bytes are copied before the callback returns. Session
-search paths, matrix layout, GLSL syntax, effect annotations, and SPIR-V
-validation settings and generic compiler-option entries are copied into the
-Slang session when the corresponding descriptor suffix is present. Target
-descriptors carry the equivalent per-target option array. Option names and
-value kinds use the numeric values from Slang's public API, so a newer caller
-can pass an option not yet given a slang-slim convenience constant.
+The preferred raw API returns Slang's HRESULT-compatible `SlangResult` values
+and uses the upstream `SlangCompileTarget`, `SlangStage`, target/session
+descriptor fields, and compiler-option numeric values. The C header spells the
+namespaced C++ records as top-level C records solely because C has no namespace
+syntax. The raw API returns owned `ISlangBlob` references that callers release
+through the ABI. Descriptors and their pointed-to data are borrowed for the
+duration of the underlying Slang call. Virtual-file callbacks are synchronous
+and receive normalized UTF-8 paths; returned blobs follow Slang's normal
+ownership contract.
 
 Slang work is serialized on a dedicated worker thread; this also keeps
 callbacks synchronous without allowing concurrent access to Slang's mutable

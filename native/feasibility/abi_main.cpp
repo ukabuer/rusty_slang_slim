@@ -1,4 +1,4 @@
-#include "slang_slim.h"
+#include "slang_c_api.h"
 
 #include <array>
 #include <cstdint>
@@ -42,152 +42,342 @@ void compute_main(uint3 dispatchThreadId : SV_DispatchThreadID)
 }
 )";
 
-constexpr std::array<slang_slim_entry_point_desc, 3> kEntries = {{
-    {sizeof(slang_slim_entry_point_desc), "vertex_main", SLANG_SLIM_STAGE_VERTEX},
-    {sizeof(slang_slim_entry_point_desc), "fragment_main", SLANG_SLIM_STAGE_FRAGMENT},
-    {sizeof(slang_slim_entry_point_desc), "compute_main", SLANG_SLIM_STAGE_COMPUTE},
+struct EntryPoint
+{
+    const char* name;
+    SlangStage stage;
+};
+
+constexpr std::array<EntryPoint, 3> kEntries = {{
+    {"vertex_main", SLANG_STAGE_VERTEX},
+    {"fragment_main", SLANG_STAGE_FRAGMENT},
+    {"compute_main", SLANG_STAGE_COMPUTE},
 }};
 
 #if defined(__ANDROID__)
-constexpr std::array<slang_slim_target_desc, 1> kTargets = {{
-    {sizeof(slang_slim_target_desc), SLANG_SLIM_TARGET_SPIRV},
-}};
+constexpr std::array<SlangCompileTarget, 1> kTargetFormats = {{SLANG_SPIRV}};
 #else
-constexpr std::array<slang_slim_target_desc, 3> kTargets = {{
-    {sizeof(slang_slim_target_desc), SLANG_SLIM_TARGET_HLSL},
-    {sizeof(slang_slim_target_desc), SLANG_SLIM_TARGET_SPIRV},
-    {sizeof(slang_slim_target_desc), SLANG_SLIM_TARGET_METAL},
+constexpr std::array<SlangCompileTarget, 3> kTargetFormats = {{
+    SLANG_HLSL,
+    SLANG_SPIRV,
+    SLANG_METAL,
 }};
 #endif
 
-void printBlob(const char* label, slang_slim_blob blob)
+void printBlob(const char* label, ISlangBlob* blob)
 {
-    if (blob.data && blob.size != 0)
-        std::cerr << label << ":\n"
-                  << std::string_view(reinterpret_cast<const char*>(blob.data), blob.size)
-                  << '\n';
+    if (!blob)
+        return;
+    const auto* data = static_cast<const char*>(slang_blob_get_buffer_pointer(blob));
+    const auto size = slang_blob_get_buffer_size(blob);
+    if (data && size != 0)
+        std::cerr << label << ":\n" << std::string_view(data, size) << '\n';
 }
 
-bool contains(slang_slim_blob blob, std::string_view needle)
+bool contains(ISlangBlob* blob, std::string_view needle)
 {
-    if (!blob.data || blob.size < needle.size())
+    if (!blob)
         return false;
-    const std::string_view text(reinterpret_cast<const char*>(blob.data), blob.size);
-    return text.find(needle) != std::string_view::npos;
+    const auto* data = static_cast<const char*>(slang_blob_get_buffer_pointer(blob));
+    const auto size = slang_blob_get_buffer_size(blob);
+    if (!data || size < needle.size())
+        return false;
+    return std::string_view(data, size).find(needle) != std::string_view::npos;
+}
+
+extern "C" SlangResult loadVirtualFile(void*, const char* path, ISlangBlob** outBlob)
+{
+    if (!path || !outBlob)
+        return SLANG_E_INVALID_ARG;
+    if (std::string_view(path) != "abi/shared.hlsl")
+        return SLANG_E_NOT_FOUND;
+    return slang_create_blob(kSharedSource, sizeof(kSharedSource) - 1, outBlob);
+}
+
+void releaseBlob(ISlangBlob*& blob)
+{
+    if (blob)
+        slang_blob_destroy(blob);
+    blob = nullptr;
 }
 } // namespace
 
 int main()
 {
-    slang_slim_compiler* compiler = nullptr;
-    auto status = slang_slim_compiler_create(&compiler);
-    if (status != SLANG_SLIM_STATUS_OK || !compiler)
-    {
-        std::cerr << "failed to create compiler: " << status << '\n';
-        return 1;
-    }
-
-    if (slang_slim_abi_version() != SLANG_SLIM_ABI_VERSION)
+    if (slang_abi_version() != SLANG_C_API_ABI_VERSION)
     {
         std::cerr << "unexpected ABI version\n";
-        slang_slim_compiler_destroy(compiler);
         return 1;
     }
 
-    slang_slim_virtual_file virtualFile = {
-        sizeof(slang_slim_virtual_file),
-        "abi/shared.hlsl",
-        reinterpret_cast<const uint8_t*>(kSharedSource),
-        sizeof(kSharedSource) - 1,
-    };
-    slang_slim_compile_desc desc = {};
-    desc.struct_size = sizeof(desc);
-    desc.module_name = "slang_slim_abi_test";
-    desc.source_path = "abi/main.hlsl";
-    desc.source = reinterpret_cast<const uint8_t*>(kSource);
-    desc.source_size = sizeof(kSource) - 1;
-    desc.entry_points = kEntries.data();
-    desc.entry_point_count = kEntries.size();
-    desc.targets = kTargets.data();
-    desc.target_count = kTargets.size();
-    desc.virtual_files = &virtualFile;
-    desc.virtual_file_count = 1;
+    SlangGlobalSessionDesc globalDesc = {};
+    globalDesc.structureSize = sizeof(globalDesc);
+    globalDesc.apiVersion = SLANG_API_VERSION;
+    globalDesc.minLanguageVersion = SLANG_LANGUAGE_VERSION_2025;
 
-    slang_slim_compilation* compilation = nullptr;
-    status = slang_slim_compile(compiler, &desc, &compilation);
-    slang_slim_blob diagnostics = {};
-    slang_slim_compilation_get_diagnostics(compilation, &diagnostics);
-    if (status != SLANG_SLIM_STATUS_OK)
+    IGlobalSession* global = nullptr;
+    SlangResult status = slang_create_global_session(&globalDesc, &global);
+    if (status != SLANG_OK || !global)
     {
-        printBlob("compile diagnostics", diagnostics);
-        slang_slim_compilation_destroy(compilation);
-        slang_slim_compiler_destroy(compiler);
+        std::cerr << "failed to create global session: " << status << '\n';
         return 1;
     }
 
-    if (slang_slim_compilation_target_count(compilation) != kTargets.size() ||
-        slang_slim_compilation_entry_point_count(compilation) != kEntries.size())
+    std::array<SlangTargetDesc, kTargetFormats.size()> targets = {};
+    for (std::size_t index = 0; index < targets.size(); ++index)
     {
-        std::cerr << "unexpected result dimensions\n";
-        slang_slim_compilation_destroy(compilation);
-        slang_slim_compiler_destroy(compiler);
-        return 1;
-    }
-
-    for (std::size_t targetIndex = 0; targetIndex < kTargets.size(); ++targetIndex)
-    {
-        slang_slim_blob reflection = {};
-        if (slang_slim_compilation_get_reflection_json(compilation, targetIndex, &reflection) !=
-                SLANG_SLIM_STATUS_OK ||
-            !contains(reflection, "vertex_main") || !contains(reflection, "fragment_main") ||
-            !contains(reflection, "compute_main"))
+        targets[index].structureSize = sizeof(SlangTargetDesc);
+        targets[index].format = kTargetFormats[index];
+        const char* profile = kTargetFormats[index] == SLANG_HLSL
+            ? "sm_6_0"
+            : (kTargetFormats[index] == SLANG_SPIRV ? "spirv_1_3" : "metallib_2_3");
+        targets[index].profile = slang_global_session_find_profile(global, profile);
+        if (targets[index].profile == SLANG_PROFILE_UNKNOWN)
         {
-            std::cerr << "reflection validation failed for target " << targetIndex << '\n';
-            printBlob("reflection", reflection);
-            slang_slim_compilation_destroy(compilation);
-            slang_slim_compiler_destroy(compiler);
+            std::cerr << "target profile unavailable: " << profile << '\n';
+            slang_global_session_destroy(global);
             return 1;
         }
+    }
 
-        for (std::size_t entryIndex = 0; entryIndex < kEntries.size(); ++entryIndex)
+    SlangFileSystemDesc fileSystemDesc = {};
+    fileSystemDesc.structureSize = sizeof(fileSystemDesc);
+    fileSystemDesc.loadFile = loadVirtualFile;
+    ISlangFileSystem* fileSystem = nullptr;
+    status = slang_file_system_create(&fileSystemDesc, &fileSystem);
+    if (status != SLANG_OK || !fileSystem)
+    {
+        std::cerr << "failed to create file system: " << status << '\n';
+        slang_global_session_destroy(global);
+        return 1;
+    }
+
+    SlangSessionDesc sessionDesc = {};
+    sessionDesc.structureSize = sizeof(sessionDesc);
+    sessionDesc.targets = targets.data();
+    sessionDesc.targetCount = static_cast<SlangInt>(targets.size());
+    sessionDesc.fileSystem = fileSystem;
+
+    ISession* session = nullptr;
+    status = slang_global_session_create_session(global, &sessionDesc, &session);
+    if (status != SLANG_OK || !session)
+    {
+        std::cerr << "failed to create session: " << status << '\n';
+        slang_file_system_destroy(fileSystem);
+        slang_global_session_destroy(global);
+        return 1;
+    }
+
+    ISlangBlob* source = nullptr;
+    status = slang_create_blob(kSource, sizeof(kSource) - 1, &source);
+    IModule* module = nullptr;
+    ISlangBlob* diagnostics = nullptr;
+    if (status == SLANG_OK)
+        status = slang_session_load_module_from_source(
+            session,
+            "slang_c_api_abi_test",
+            "abi/main.hlsl",
+            source,
+            &diagnostics,
+            &module);
+    releaseBlob(source);
+    if (status != SLANG_OK || !module)
+    {
+        printBlob("module diagnostics", diagnostics);
+        releaseBlob(diagnostics);
+        slang_session_destroy(session);
+        slang_file_system_destroy(fileSystem);
+        slang_global_session_destroy(global);
+        return 1;
+    }
+    releaseBlob(diagnostics);
+
+    std::array<IEntryPoint*, kEntries.size()> entryPoints = {};
+    for (std::size_t index = 0; index < entryPoints.size(); ++index)
+    {
+        status = slang_module_find_and_check_entry_point(
+            module,
+            kEntries[index].name,
+            kEntries[index].stage,
+            &entryPoints[index],
+            &diagnostics);
+        if (status != SLANG_OK || !entryPoints[index])
         {
-            slang_slim_blob code = {};
-            if (slang_slim_compilation_get_code(compilation, targetIndex, entryIndex, &code) !=
-                    SLANG_SLIM_STATUS_OK ||
-                !code.data || code.size == 0)
+            printBlob("entry point diagnostics", diagnostics);
+            releaseBlob(diagnostics);
+            for (auto*& entryPoint : entryPoints)
+                if (entryPoint)
+                    slang_component_type_destroy(entryPoint);
+            slang_component_type_destroy(module);
+            slang_session_destroy(session);
+            slang_file_system_destroy(fileSystem);
+            slang_global_session_destroy(global);
+            return 1;
+        }
+        releaseBlob(diagnostics);
+    }
+
+    std::array<IComponentType*, kEntries.size() + 1> components = {};
+    components[0] = module;
+    for (std::size_t index = 0; index < entryPoints.size(); ++index)
+        components[index + 1] = entryPoints[index];
+
+    IComponentType* program = nullptr;
+    status = slang_session_create_composite_component_type(
+        session,
+        components.data(),
+        static_cast<SlangInt>(components.size()),
+        &program,
+        &diagnostics);
+    releaseBlob(diagnostics);
+    if (status != SLANG_OK || !program)
+    {
+        slang_component_type_destroy(module);
+        for (auto*& entryPoint : entryPoints)
+            slang_component_type_destroy(entryPoint);
+        slang_session_destroy(session);
+        slang_file_system_destroy(fileSystem);
+        slang_global_session_destroy(global);
+        return 1;
+    }
+
+    IComponentType* linked = nullptr;
+    status = slang_component_type_link(program, &linked, &diagnostics);
+    if (status != SLANG_OK || !linked)
+    {
+        printBlob("link diagnostics", diagnostics);
+        releaseBlob(diagnostics);
+        slang_component_type_destroy(program);
+        slang_component_type_destroy(module);
+        for (auto*& entryPoint : entryPoints)
+            slang_component_type_destroy(entryPoint);
+        slang_session_destroy(session);
+        slang_file_system_destroy(fileSystem);
+        slang_global_session_destroy(global);
+        return 1;
+    }
+    releaseBlob(diagnostics);
+
+    for (std::size_t targetIndex = 0; targetIndex < targets.size(); ++targetIndex)
+    {
+        ProgramLayout* layout = nullptr;
+        status = slang_component_type_get_layout(linked, targetIndex, &layout, &diagnostics);
+        if (status != SLANG_OK || !layout)
+        {
+            printBlob("layout diagnostics", diagnostics);
+            releaseBlob(diagnostics);
+            slang_component_type_destroy(linked);
+            slang_component_type_destroy(program);
+            slang_component_type_destroy(module);
+            for (auto*& entryPoint : entryPoints)
+                slang_component_type_destroy(entryPoint);
+            slang_session_destroy(session);
+            slang_file_system_destroy(fileSystem);
+            slang_global_session_destroy(global);
+            return 1;
+        }
+        releaseBlob(diagnostics);
+
+        ISlangBlob* reflection = nullptr;
+        status = slang_program_layout_to_json(layout, &reflection);
+        if (status != SLANG_OK || !contains(reflection, "vertex_main") ||
+            !contains(reflection, "fragment_main") || !contains(reflection, "compute_main"))
+        {
+            printBlob("reflection", reflection);
+            releaseBlob(reflection);
+            slang_program_layout_destroy(layout);
+            slang_component_type_destroy(linked);
+            slang_component_type_destroy(program);
+            slang_component_type_destroy(module);
+            for (auto*& entryPoint : entryPoints)
+                slang_component_type_destroy(entryPoint);
+            slang_session_destroy(session);
+            slang_file_system_destroy(fileSystem);
+            slang_global_session_destroy(global);
+            return 1;
+        }
+        releaseBlob(reflection);
+
+        for (std::size_t entryIndex = 0; entryIndex < entryPoints.size(); ++entryIndex)
+        {
+            ISlangBlob* code = nullptr;
+            status = slang_component_type_get_entry_point_code(
+                linked,
+                static_cast<SlangInt>(entryIndex),
+                static_cast<SlangInt>(targetIndex),
+                &code,
+                &diagnostics);
+            if (status != SLANG_OK || !code ||
+                slang_blob_get_buffer_size(code) == 0)
             {
-                std::cerr << "code validation failed for target " << targetIndex << ", entry "
-                          << entryIndex << '\n';
-                slang_slim_compilation_destroy(compilation);
-                slang_slim_compiler_destroy(compiler);
+                printBlob("code diagnostics", diagnostics);
+                releaseBlob(diagnostics);
+                releaseBlob(code);
+                slang_program_layout_destroy(layout);
+                slang_component_type_destroy(linked);
+                slang_component_type_destroy(program);
+                slang_component_type_destroy(module);
+                for (auto*& entryPoint : entryPoints)
+                    slang_component_type_destroy(entryPoint);
+                slang_session_destroy(session);
+                slang_file_system_destroy(fileSystem);
+                slang_global_session_destroy(global);
                 return 1;
             }
+            releaseBlob(diagnostics);
 
-            if (kTargets[targetIndex].target == SLANG_SLIM_TARGET_SPIRV)
+            if (kTargetFormats[targetIndex] == SLANG_SPIRV)
             {
-                if (code.size < 2 * sizeof(uint32_t))
+                if (slang_blob_get_buffer_size(code) < 2 * sizeof(uint32_t))
                 {
-                    std::cerr << "SPIR-V output is too small\n";
-                    slang_slim_compilation_destroy(compilation);
-                    slang_slim_compiler_destroy(compiler);
+                    releaseBlob(code);
+                    slang_program_layout_destroy(layout);
+                    slang_component_type_destroy(linked);
+                    slang_component_type_destroy(program);
+                    slang_component_type_destroy(module);
+                    for (auto*& entryPoint : entryPoints)
+                        slang_component_type_destroy(entryPoint);
+                    slang_session_destroy(session);
+                    slang_file_system_destroy(fileSystem);
+                    slang_global_session_destroy(global);
                     return 1;
                 }
                 uint32_t header[2] = {};
-                std::memcpy(header, code.data, sizeof(header));
+                std::memcpy(
+                    header,
+                    slang_blob_get_buffer_pointer(code),
+                    sizeof(header));
                 if (header[0] != 0x07230203 || header[1] != 0x00010300)
                 {
                     std::cerr << "unexpected SPIR-V header\n";
-                    slang_slim_compilation_destroy(compilation);
-                    slang_slim_compiler_destroy(compiler);
+                    releaseBlob(code);
+                    slang_program_layout_destroy(layout);
+                    slang_component_type_destroy(linked);
+                    slang_component_type_destroy(program);
+                    slang_component_type_destroy(module);
+                    for (auto*& entryPoint : entryPoints)
+                        slang_component_type_destroy(entryPoint);
+                    slang_session_destroy(session);
+                    slang_file_system_destroy(fileSystem);
+                    slang_global_session_destroy(global);
                     return 1;
                 }
             }
+            releaseBlob(code);
         }
+
+        slang_program_layout_destroy(layout);
     }
 
     std::cout << "ABI compile passed for " << kEntries.size() << " entry points and "
-              << kTargets.size() << " target(s)\n";
-    slang_slim_compilation_destroy(compilation);
-    slang_slim_compiler_destroy(compiler);
+              << kTargetFormats.size() << " target(s)\n";
+    slang_component_type_destroy(linked);
+    slang_component_type_destroy(program);
+    slang_component_type_destroy(module);
+    for (auto*& entryPoint : entryPoints)
+        slang_component_type_destroy(entryPoint);
+    slang_session_destroy(session);
+    slang_file_system_destroy(fileSystem);
+    slang_global_session_destroy(global);
     return 0;
 }

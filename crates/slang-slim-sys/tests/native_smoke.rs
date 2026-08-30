@@ -6,19 +6,21 @@ use std::ffi::{CStr, CString, c_void};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use slang_slim_sys::{
-    ABI_VERSION, Blob, COMPILE_TARGET_HLSL, COMPILE_TARGET_METAL, COMPILE_TARGET_SPIRV,
-    COMPILER_OPTION_MATRIX_LAYOUT_ROW, COMPILER_OPTION_VALUE_INT, Compilation, CompileDesc,
-    Compiler, CompilerOptionEntry, CompilerOptionValue, EntryPointDesc, LoadFileFn, STAGE_COMPUTE,
-    STAGE_COMPUTE_LEGACY, STAGE_FRAGMENT, STAGE_FRAGMENT_LEGACY, STAGE_VERTEX,
-    STATUS_INVALID_ARGUMENT, STATUS_NOT_FOUND, STATUS_OK, Status, TARGET_FLAGS_DEFAULT,
-    TARGET_HLSL, TARGET_METAL, TARGET_SPIRV, Target, TargetDesc, VirtualFile,
-    slang_slim_abi_version, slang_slim_compilation_destroy,
-    slang_slim_compilation_entry_point_count, slang_slim_compilation_get_code,
-    slang_slim_compilation_get_diagnostics, slang_slim_compilation_get_reflection_json,
-    slang_slim_compilation_target, slang_slim_compilation_target_count,
-    slang_slim_compilation_target_format, slang_slim_compilation_target_profile,
-    slang_slim_compile, slang_slim_compiler_create, slang_slim_compiler_destroy,
-    slang_slim_compiler_supports_target, slang_slim_compiler_supports_target_format,
+    ABI_VERSION, FileSystem, IBlob, K_DEFAULT_TARGET_FLAGS, Module, ProgramLayout,
+    SLANG_C_API_ABI_VERSION, SLANG_E_INVALID_ARG, SLANG_E_NOT_FOUND, SLANG_HLSL,
+    SLANG_LANGUAGE_VERSION_2025, SLANG_METAL, SLANG_OK, SLANG_PROFILE_UNKNOWN, SLANG_SPIRV,
+    SLANG_STAGE_COMPUTE, SLANG_STAGE_FRAGMENT, SLANG_STAGE_VERTEX, Session, SlangCompileTarget,
+    SlangFileSystemDesc, SlangGlobalSessionDesc, SlangLoadFileFunc, SlangResult, SlangSessionDesc,
+    SlangStage, SlangTargetDesc, slang_abi_version, slang_blob_destroy,
+    slang_blob_get_buffer_pointer, slang_blob_get_buffer_size, slang_component_type_destroy,
+    slang_component_type_get_entry_point_code, slang_component_type_get_layout,
+    slang_component_type_link, slang_create_blob, slang_create_global_session,
+    slang_file_system_create, slang_file_system_destroy, slang_global_session_create_session,
+    slang_global_session_destroy, slang_global_session_find_profile,
+    slang_global_session_get_build_tag, slang_module_find_and_check_entry_point,
+    slang_module_get_file_path, slang_module_get_name, slang_program_layout_destroy,
+    slang_program_layout_to_json, slang_session_create_composite_component_type,
+    slang_session_destroy, slang_session_load_module_from_source,
 };
 
 static SHARED_SOURCE: &[u8] = b"float4 shared_tint() { return float4(1.0, 0.75, 0.5, 1.0); }\n";
@@ -54,479 +56,295 @@ void compute_main(uint3 dispatchThreadId : SV_DispatchThreadID)
 }
 "#;
 
-#[cfg(target_os = "android")]
-const EXPECTED_TARGETS: &[Target] = &[TARGET_SPIRV];
-
-#[cfg(not(target_os = "android"))]
-const EXPECTED_TARGETS: &[Target] = &[TARGET_HLSL, TARGET_SPIRV, TARGET_METAL];
-
-fn empty_blob() -> Blob {
-    Blob {
-        data: ptr::null(),
-        size: 0,
-    }
-}
-
-fn blob_contains(blob: Blob, needle: &[u8]) -> bool {
-    if blob.data.is_null() || blob.size < needle.len() {
-        return false;
-    }
-    // The native ABI owns this view for the lifetime of the compilation handle.
-    let bytes = unsafe { core::slice::from_raw_parts(blob.data, blob.size) };
-    bytes.windows(needle.len()).any(|window| window == needle)
-}
-
-fn blob_u32(blob: Blob, index: usize) -> Option<u32> {
-    let byte_offset = index.checked_mul(size_of::<u32>())?;
-    let end = byte_offset.checked_add(size_of::<u32>())?;
-    if blob.data.is_null() || blob.size < end {
-        return None;
-    }
-    let bytes = unsafe { core::slice::from_raw_parts(blob.data, blob.size) };
-    Some(u32::from_le_bytes(bytes[byte_offset..end].try_into().ok()?))
-}
-
-fn blob_text(blob: Blob) -> String {
-    if blob.data.is_null() || blob.size == 0 {
+fn raw_blob_text(blob: *mut IBlob) -> String {
+    let data = unsafe { slang_blob_get_buffer_pointer(blob) };
+    let size = unsafe { slang_blob_get_buffer_size(blob) };
+    if data.is_null() || size == 0 {
         return String::new();
     }
-    let bytes = unsafe { core::slice::from_raw_parts(blob.data, blob.size) };
+    let bytes = unsafe { core::slice::from_raw_parts(data.cast::<u8>(), size) };
     String::from_utf8_lossy(bytes).into_owned()
 }
 
-fn expected_format(target: Target) -> u32 {
-    match target {
-        TARGET_HLSL => COMPILE_TARGET_HLSL,
-        TARGET_SPIRV => COMPILE_TARGET_SPIRV,
-        TARGET_METAL => COMPILE_TARGET_METAL,
-        _ => 0,
+unsafe fn release_blob(blob: &mut *mut IBlob) {
+    if !(*blob).is_null() {
+        unsafe { slang_blob_destroy(*blob) };
+        *blob = ptr::null_mut();
     }
 }
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct LegacyTargetDesc {
-    struct_size: u32,
-    target: Target,
-}
-
-#[repr(C)]
-struct LegacyCompileDesc {
-    struct_size: u32,
-    module_name: *const std::ffi::c_char,
-    source_path: *const std::ffi::c_char,
-    source: *const u8,
-    source_size: usize,
-    entry_points: *const EntryPointDesc,
-    entry_point_count: usize,
-    targets: *const LegacyTargetDesc,
-    target_count: usize,
-    defines: *const slang_slim_sys::DefineDesc,
-    define_count: usize,
-    virtual_files: *const VirtualFile,
-    virtual_file_count: usize,
-    load_file: Option<LoadFileFn>,
-    load_file_user_data: *mut c_void,
-}
-
-fn entry_points(names: &[CString; 3]) -> [EntryPointDesc; 3] {
-    [
-        EntryPointDesc {
-            struct_size: size_of::<EntryPointDesc>() as u32,
-            name: names[0].as_ptr(),
-            stage: STAGE_VERTEX,
-        },
-        EntryPointDesc {
-            struct_size: size_of::<EntryPointDesc>() as u32,
-            name: names[1].as_ptr(),
-            stage: STAGE_FRAGMENT,
-        },
-        EntryPointDesc {
-            struct_size: size_of::<EntryPointDesc>() as u32,
-            name: names[2].as_ptr(),
-            stage: STAGE_COMPUTE,
-        },
-    ]
-}
-
-fn target_descriptors() -> Vec<TargetDesc> {
-    EXPECTED_TARGETS
-        .iter()
-        .copied()
-        .map(|target| TargetDesc {
-            struct_size: size_of::<TargetDesc>() as u32,
-            target,
-            format: expected_format(target),
-            profile: ptr::null(),
-            flags: TARGET_FLAGS_DEFAULT,
-            floating_point_mode: 0,
-            line_directive_mode: 0,
-            force_glsl_scalar_buffer_layout: 0,
-            compiler_options: ptr::null(),
-            compiler_option_count: 0,
-        })
-        .collect()
-}
-
-unsafe fn compile_fixture(
-    compiler: *const Compiler,
-    use_virtual_file: bool,
-    load_file: Option<LoadFileFn>,
-    load_file_user_data: *mut c_void,
-    module_name_value: &str,
-) -> (Status, *mut Compilation) {
-    let module_name = CString::new(module_name_value).expect("module name has no NUL");
-    let source_path = CString::new("main.hlsl").expect("literal has no NUL");
-    let entry_names = [
-        CString::new("vertex_main").expect("literal has no NUL"),
-        CString::new("fragment_main").expect("literal has no NUL"),
-        CString::new("compute_main").expect("literal has no NUL"),
-    ];
-    let entries = entry_points(&entry_names);
-    let mut targets = target_descriptors();
-    let compiler_options = [CompilerOptionEntry {
-        name: COMPILER_OPTION_MATRIX_LAYOUT_ROW,
-        value: CompilerOptionValue {
-            kind: COMPILER_OPTION_VALUE_INT,
-            int_value0: 1,
-            int_value1: 0,
-            string_value0: ptr::null(),
-            string_value1: ptr::null(),
-        },
-    }];
-    for target in &mut targets {
-        target.compiler_options = compiler_options.as_ptr();
-        target.compiler_option_count = compiler_options.len();
-    }
-    let virtual_file_path = CString::new("shared.hlsl").expect("literal has no NUL");
-    let virtual_file = VirtualFile {
-        struct_size: size_of::<VirtualFile>() as u32,
-        path: virtual_file_path.as_ptr(),
-        data: SHARED_SOURCE.as_ptr(),
-        size: SHARED_SOURCE.len(),
-    };
-
-    let (virtual_files, virtual_file_count) = if use_virtual_file {
-        (&virtual_file as *const VirtualFile, 1)
-    } else {
-        (ptr::null(), 0)
-    };
-    let desc = CompileDesc {
-        struct_size: size_of::<CompileDesc>() as u32,
-        module_name: module_name.as_ptr(),
-        source_path: source_path.as_ptr(),
-        source: SOURCE.as_ptr(),
-        source_size: SOURCE.len(),
-        entry_points: entries.as_ptr(),
-        entry_point_count: entries.len(),
-        targets: targets.as_ptr(),
-        target_count: targets.len(),
-        defines: ptr::null(),
-        define_count: 0,
-        virtual_files,
-        virtual_file_count,
-        load_file,
-        load_file_user_data,
-        search_paths: ptr::null(),
-        search_path_count: 0,
-        session_flags: 0,
-        default_matrix_layout_mode: 0,
-        allow_glsl_syntax: 0,
-        skip_spirv_validation: 0,
-        enable_effect_annotations: 0,
-        compiler_options: compiler_options.as_ptr(),
-        compiler_option_count: compiler_options.len(),
-    };
-
-    let mut compilation = ptr::null_mut();
-    let status = unsafe { slang_slim_compile(compiler, &desc, &mut compilation) };
-    (status, compilation)
-}
-
-unsafe fn compile_legacy_fixture(compiler: *const Compiler) -> (Status, *mut Compilation) {
-    let module_name = CString::new("rust_ffi_legacy_fixture").expect("literal has no NUL");
-    let source_path = CString::new("legacy.hlsl").expect("literal has no NUL");
-    let entry_names = [
-        CString::new("vertex_main").expect("literal has no NUL"),
-        CString::new("fragment_main").expect("literal has no NUL"),
-        CString::new("compute_main").expect("literal has no NUL"),
-    ];
-    let entries = [
-        EntryPointDesc {
-            struct_size: size_of::<EntryPointDesc>() as u32,
-            name: entry_names[0].as_ptr(),
-            stage: STAGE_VERTEX,
-        },
-        EntryPointDesc {
-            struct_size: size_of::<EntryPointDesc>() as u32,
-            name: entry_names[1].as_ptr(),
-            stage: STAGE_FRAGMENT_LEGACY,
-        },
-        EntryPointDesc {
-            struct_size: size_of::<EntryPointDesc>() as u32,
-            name: entry_names[2].as_ptr(),
-            stage: STAGE_COMPUTE_LEGACY,
-        },
-    ];
-    let target = LegacyTargetDesc {
-        struct_size: size_of::<LegacyTargetDesc>() as u32,
-        target: TARGET_SPIRV,
-    };
-    let virtual_file_path = CString::new("shared.hlsl").expect("literal has no NUL");
-    let virtual_file = VirtualFile {
-        struct_size: size_of::<VirtualFile>() as u32,
-        path: virtual_file_path.as_ptr(),
-        data: SHARED_SOURCE.as_ptr(),
-        size: SHARED_SOURCE.len(),
-    };
-    let desc = LegacyCompileDesc {
-        struct_size: size_of::<LegacyCompileDesc>() as u32,
-        module_name: module_name.as_ptr(),
-        source_path: source_path.as_ptr(),
-        source: SOURCE.as_ptr(),
-        source_size: SOURCE.len(),
-        entry_points: entries.as_ptr(),
-        entry_point_count: entries.len(),
-        targets: &target,
-        target_count: 1,
-        defines: ptr::null(),
-        define_count: 0,
-        virtual_files: &virtual_file,
-        virtual_file_count: 1,
-        load_file: None,
-        load_file_user_data: ptr::null_mut(),
-    };
-
-    let mut compilation = ptr::null_mut();
-    let status = unsafe {
-        slang_slim_compile(
-            compiler,
-            (&desc as *const LegacyCompileDesc).cast::<CompileDesc>(),
-            &mut compilation,
-        )
-    };
-    (status, compilation)
-}
-
-unsafe fn assert_compile_success(status: Status, compilation: *mut Compilation) {
-    if status == STATUS_OK {
-        assert!(!compilation.is_null());
+unsafe fn raw_assert_success(status: SlangResult, diagnostics: *mut IBlob, context: &str) {
+    if status == SLANG_OK {
+        let mut diagnostics = diagnostics;
+        unsafe { release_blob(&mut diagnostics) };
         return;
     }
-
-    let mut diagnostics = empty_blob();
-    let diagnostic_text;
-    if !compilation.is_null() {
-        unsafe {
-            let _ = slang_slim_compilation_get_diagnostics(compilation, &mut diagnostics);
-        }
-        diagnostic_text = blob_text(diagnostics);
-        unsafe { slang_slim_compilation_destroy(compilation) };
-    } else {
-        diagnostic_text = String::new();
-    }
-    panic!("native compile failed with status {status}: {diagnostic_text}");
+    let message = raw_blob_text(diagnostics);
+    let mut diagnostics = diagnostics;
+    unsafe { release_blob(&mut diagnostics) };
+    panic!("native Slang API call {context} failed with {status}: {message}");
 }
 
-unsafe fn assert_outputs(compilation: *const Compilation, expected_targets: &[Target]) {
-    assert_eq!(
-        unsafe { slang_slim_compilation_target_count(compilation) },
-        expected_targets.len()
-    );
-    assert_eq!(
-        unsafe { slang_slim_compilation_entry_point_count(compilation) },
-        3
-    );
-
-    for (target_index, expected_target) in expected_targets.iter().enumerate() {
-        assert_eq!(
-            unsafe { slang_slim_compilation_target(compilation, target_index) },
-            *expected_target
-        );
-        assert_eq!(
-            unsafe { slang_slim_compilation_target_format(compilation, target_index) },
-            expected_format(*expected_target)
-        );
-        let profile = unsafe { slang_slim_compilation_target_profile(compilation, target_index) };
-        assert!(!profile.is_null());
-        let profile = unsafe { CStr::from_ptr(profile) }.to_bytes();
-        let expected_profile = match *expected_target {
-            TARGET_HLSL => b"sm_6_0".as_slice(),
-            TARGET_SPIRV => b"spirv_1_3".as_slice(),
-            TARGET_METAL => b"metallib_2_3".as_slice(),
-            _ => &[],
-        };
-        assert_eq!(profile, expected_profile);
-
-        let mut reflection = empty_blob();
-        assert_eq!(
-            unsafe {
-                slang_slim_compilation_get_reflection_json(
-                    compilation,
-                    target_index,
-                    &mut reflection,
-                )
-            },
-            STATUS_OK
-        );
-        for name in [b"vertex_main".as_slice(), b"fragment_main", b"compute_main"] {
-            assert!(blob_contains(reflection, name));
-        }
-
-        for entry_index in 0..3 {
-            let mut code = empty_blob();
-            assert_eq!(
-                unsafe {
-                    slang_slim_compilation_get_code(
-                        compilation,
-                        target_index,
-                        entry_index,
-                        &mut code,
-                    )
-                },
-                STATUS_OK
-            );
-            assert!(!code.data.is_null());
-            assert!(code.size > 0);
-            if *expected_target == TARGET_SPIRV {
-                assert_eq!(blob_u32(code, 0), Some(0x0723_0203));
-                assert_eq!(blob_u32(code, 1), Some(0x0001_0300));
-            }
-        }
-    }
-}
-
-unsafe extern "C" fn load_shared_file(
+unsafe extern "C" fn load_shared_blob(
     user_data: *mut c_void,
-    normalized_path: *const std::ffi::c_char,
-    out_file: *mut Blob,
-) -> Status {
-    if user_data.is_null() || normalized_path.is_null() || out_file.is_null() {
-        return STATUS_INVALID_ARGUMENT;
+    path: *const std::ffi::c_char,
+    out_blob: *mut *mut IBlob,
+) -> SlangResult {
+    if user_data.is_null() || path.is_null() || out_blob.is_null() {
+        return SLANG_E_INVALID_ARG;
     }
-    let path = unsafe { CStr::from_ptr(normalized_path) };
-    if path.to_bytes() != b"shared.hlsl" {
-        return STATUS_NOT_FOUND;
+    let path = unsafe { CStr::from_ptr(path) };
+    if path.to_bytes() != b"shared.hlsl" && path.to_bytes() != b"abi/shared.hlsl" {
+        return SLANG_E_NOT_FOUND;
     }
     let calls = unsafe { &*(user_data.cast::<AtomicUsize>()) };
     calls.fetch_add(1, Ordering::Relaxed);
+    unsafe { slang_create_blob(SHARED_SOURCE.as_ptr().cast(), SHARED_SOURCE.len(), out_blob) }
+}
+
+fn make_target(format: SlangCompileTarget, profile: u32) -> SlangTargetDesc {
+    SlangTargetDesc {
+        structure_size: size_of::<SlangTargetDesc>(),
+        format,
+        profile,
+        flags: K_DEFAULT_TARGET_FLAGS,
+        floating_point_mode: 0,
+        line_directive_mode: 0,
+        force_glsl_scalar_buffer_layout: 0,
+        _force_glsl_scalar_buffer_layout_padding: [0; 3],
+        compiler_option_entries: ptr::null(),
+        compiler_option_entry_count: 0,
+    }
+}
+
+#[test]
+fn slang_c_api_is_callable_from_rust() {
     unsafe {
-        *out_file = Blob {
-            data: SHARED_SOURCE.as_ptr(),
-            size: SHARED_SOURCE.len(),
+        assert_eq!(slang_abi_version(), ABI_VERSION);
+        assert_eq!(ABI_VERSION, SLANG_C_API_ABI_VERSION);
+
+        let global_desc = SlangGlobalSessionDesc {
+            structure_size: size_of::<SlangGlobalSessionDesc>() as u32,
+            api_version: 0,
+            min_language_version: SLANG_LANGUAGE_VERSION_2025,
+            enable_glsl: 0,
+            _enable_glsl_padding: [0; 3],
+            reserved: [0; 16],
         };
-    }
-    STATUS_OK
-}
+        let mut global = ptr::null_mut();
+        raw_assert_success(
+            slang_create_global_session(&global_desc, &mut global),
+            ptr::null_mut(),
+            "create global session",
+        );
+        assert!(!global.is_null());
+        assert!(!slang_global_session_get_build_tag(global).is_null());
 
-#[test]
-fn project_owned_abi_is_callable_from_rust() {
-    unsafe {
-        assert_eq!(slang_slim_abi_version(), ABI_VERSION);
+        let hlsl_profile =
+            slang_global_session_find_profile(global, CString::new("sm_6_0").unwrap().as_ptr());
+        let spirv_profile =
+            slang_global_session_find_profile(global, CString::new("spirv_1_3").unwrap().as_ptr());
+        #[cfg(not(target_os = "android"))]
+        let metal_profile = slang_global_session_find_profile(
+            global,
+            CString::new("metallib_2_3").unwrap().as_ptr(),
+        );
+        assert_ne!(hlsl_profile, SLANG_PROFILE_UNKNOWN);
+        assert_ne!(spirv_profile, SLANG_PROFILE_UNKNOWN);
+        #[cfg(not(target_os = "android"))]
+        assert_ne!(metal_profile, SLANG_PROFILE_UNKNOWN);
 
-        let mut compiler: *mut Compiler = ptr::null_mut();
-        assert_eq!(slang_slim_compiler_create(&mut compiler), STATUS_OK);
-        assert!(!compiler.is_null());
+        let raw_callback_calls = Box::new(AtomicUsize::new(0));
+        let raw_callback_user = (&*raw_callback_calls as *const AtomicUsize)
+            .cast_mut()
+            .cast();
+        let file_system_desc = SlangFileSystemDesc {
+            structure_size: size_of::<SlangFileSystemDesc>(),
+            load_file: Some(load_shared_blob as SlangLoadFileFunc),
+            load_file_user_data: raw_callback_user,
+        };
+        let mut file_system = ptr::null_mut::<FileSystem>();
+        raw_assert_success(
+            slang_file_system_create(&file_system_desc, &mut file_system),
+            ptr::null_mut(),
+            "create file system",
+        );
+
+        let mut raw_targets = Vec::new();
+        raw_targets.push(make_target(SLANG_SPIRV, spirv_profile));
         #[cfg(not(target_os = "android"))]
         {
-            assert_eq!(
-                slang_slim_compiler_supports_target(compiler, TARGET_HLSL),
-                1
-            );
-            assert_eq!(
-                slang_slim_compiler_supports_target(compiler, TARGET_METAL),
-                1
-            );
+            raw_targets.insert(0, make_target(SLANG_HLSL, hlsl_profile));
+            raw_targets.push(make_target(SLANG_METAL, metal_profile));
         }
-        assert_eq!(
-            slang_slim_compiler_supports_target(compiler, TARGET_SPIRV),
-            1
-        );
-        assert_eq!(
-            slang_slim_compiler_supports_target_format(compiler, COMPILE_TARGET_SPIRV, ptr::null()),
-            1
-        );
-        #[cfg(not(target_os = "android"))]
-        {
-            assert_eq!(
-                slang_slim_compiler_supports_target_format(
-                    compiler,
-                    COMPILE_TARGET_HLSL,
-                    ptr::null()
-                ),
-                1
-            );
-            assert_eq!(
-                slang_slim_compiler_supports_target_format(
-                    compiler,
-                    COMPILE_TARGET_METAL,
-                    ptr::null()
-                ),
-                1
-            );
-        }
-        #[cfg(target_os = "android")]
-        {
-            assert_eq!(
-                slang_slim_compiler_supports_target(compiler, TARGET_HLSL),
-                0
-            );
-            assert_eq!(
-                slang_slim_compiler_supports_target(compiler, TARGET_METAL),
-                0
-            );
-        }
-        slang_slim_compiler_destroy(compiler);
-    }
-}
 
-#[test]
-fn rust_ffi_compiles_multi_entry_targets_and_vfs() {
-    unsafe {
-        let mut compiler: *mut Compiler = ptr::null_mut();
-        assert_eq!(slang_slim_compiler_create(&mut compiler), STATUS_OK);
-
-        let (status, compilation) = compile_fixture(
-            compiler,
-            true,
-            None,
+        let session_desc = SlangSessionDesc {
+            structure_size: size_of::<SlangSessionDesc>(),
+            targets: raw_targets.as_ptr(),
+            target_count: raw_targets.len() as i64,
+            flags: 0,
+            default_matrix_layout_mode: 1,
+            search_paths: ptr::null(),
+            search_path_count: 0,
+            preprocessor_macros: ptr::null(),
+            preprocessor_macro_count: 0,
+            file_system,
+            enable_effect_annotations: 0,
+            allow_glsl_syntax: 0,
+            _session_bool_padding: [0; 6],
+            compiler_option_entries: ptr::null(),
+            compiler_option_entry_count: 0,
+            skip_spirv_validation: 0,
+            _skip_spirv_validation_padding: [0; 3],
+        };
+        let mut session = ptr::null_mut::<Session>();
+        raw_assert_success(
+            slang_global_session_create_session(global, &session_desc, &mut session),
             ptr::null_mut(),
-            "rust_ffi_fixture_one",
+            "create session",
         );
-        assert_compile_success(status, compilation);
-        assert_outputs(compilation, EXPECTED_TARGETS);
-        slang_slim_compilation_destroy(compilation);
 
-        let (status, compilation) = compile_fixture(
-            compiler,
-            true,
-            None,
+        let module_name = CString::new("raw_slang_c_api").unwrap();
+        let source_path = CString::new("main.hlsl").unwrap();
+        let mut source_blob = ptr::null_mut::<IBlob>();
+        raw_assert_success(
+            slang_create_blob(SOURCE.as_ptr().cast(), SOURCE.len(), &mut source_blob),
             ptr::null_mut(),
-            "rust_ffi_fixture_two",
+            "create source blob",
         );
-        assert_compile_success(status, compilation);
-        assert_outputs(compilation, EXPECTED_TARGETS);
-        slang_slim_compilation_destroy(compilation);
-
-        let (status, compilation) = compile_legacy_fixture(compiler);
-        assert_compile_success(status, compilation);
-        assert_outputs(compilation, &[TARGET_SPIRV]);
-        slang_slim_compilation_destroy(compilation);
-
-        let callback_calls = Box::new(AtomicUsize::new(0));
-        let callback_user_data = (&*callback_calls as *const AtomicUsize).cast_mut().cast();
-        let (status, compilation) = compile_fixture(
-            compiler,
-            false,
-            Some(load_shared_file),
-            callback_user_data,
-            "rust_ffi_callback_fixture",
+        let mut diagnostics = ptr::null_mut::<IBlob>();
+        let mut module = ptr::null_mut::<Module>();
+        let status = slang_session_load_module_from_source(
+            session,
+            module_name.as_ptr(),
+            source_path.as_ptr(),
+            source_blob,
+            &mut diagnostics,
+            &mut module,
         );
-        assert_compile_success(status, compilation);
-        assert_outputs(compilation, EXPECTED_TARGETS);
-        assert!(callback_calls.load(Ordering::Relaxed) > 0);
-        slang_slim_compilation_destroy(compilation);
+        release_blob(&mut source_blob);
+        raw_assert_success(status, diagnostics, "load module");
+        assert!(!module.is_null());
+        assert_eq!(
+            CStr::from_ptr(slang_module_get_name(module)).to_bytes(),
+            b"raw_slang_c_api"
+        );
+        assert_eq!(
+            CStr::from_ptr(slang_module_get_file_path(module)).to_bytes(),
+            b"main.hlsl"
+        );
 
-        slang_slim_compiler_destroy(compiler);
+        let entry_names = [
+            CString::new("vertex_main").unwrap(),
+            CString::new("fragment_main").unwrap(),
+            CString::new("compute_main").unwrap(),
+        ];
+        let stages: [SlangStage; 3] = [
+            SLANG_STAGE_VERTEX,
+            SLANG_STAGE_FRAGMENT,
+            SLANG_STAGE_COMPUTE,
+        ];
+        let mut entries = Vec::new();
+        for (name, stage) in entry_names.iter().zip(stages) {
+            let mut entry = ptr::null_mut::<Module>();
+            diagnostics = ptr::null_mut();
+            let status = slang_module_find_and_check_entry_point(
+                module,
+                name.as_ptr(),
+                stage,
+                &mut entry,
+                &mut diagnostics,
+            );
+            raw_assert_success(status, diagnostics, "find entry point");
+            assert!(!entry.is_null());
+            entries.push(entry);
+        }
+
+        let mut components: Vec<*mut slang_slim_sys::IComponentType> =
+            Vec::with_capacity(entries.len() + 1);
+        components.push(module.cast());
+        components.extend(entries.iter().copied().map(|entry| entry.cast()));
+        let mut program = ptr::null_mut::<slang_slim_sys::ComponentType>();
+        diagnostics = ptr::null_mut();
+        let status = slang_session_create_composite_component_type(
+            session,
+            components.as_ptr(),
+            components.len() as i64,
+            &mut program,
+            &mut diagnostics,
+        );
+        raw_assert_success(status, diagnostics, "create composite component");
+        assert!(!program.is_null());
+
+        let mut linked = ptr::null_mut::<slang_slim_sys::ComponentType>();
+        diagnostics = ptr::null_mut();
+        let status = slang_component_type_link(program, &mut linked, &mut diagnostics);
+        raw_assert_success(status, diagnostics, "link component");
+        assert!(!linked.is_null());
+
+        for (target_index, target_desc) in raw_targets.iter().enumerate() {
+            let mut layout = ptr::null_mut::<ProgramLayout>();
+            diagnostics = ptr::null_mut();
+            let status = slang_component_type_get_layout(
+                linked,
+                target_index as i64,
+                &mut layout,
+                &mut diagnostics,
+            );
+            raw_assert_success(status, diagnostics, "get layout");
+            assert!(!layout.is_null());
+
+            let mut reflection = ptr::null_mut::<IBlob>();
+            raw_assert_success(
+                slang_program_layout_to_json(layout, &mut reflection),
+                ptr::null_mut(),
+                "layout reflection JSON",
+            );
+            let reflection_text = raw_blob_text(reflection);
+            assert!(reflection_text.contains("vertex_main"));
+            assert!(reflection_text.contains("fragment_main"));
+            assert!(reflection_text.contains("compute_main"));
+            release_blob(&mut reflection);
+
+            for entry_index in 0..entries.len() {
+                let mut code = ptr::null_mut::<IBlob>();
+                diagnostics = ptr::null_mut();
+                let status = slang_component_type_get_entry_point_code(
+                    linked,
+                    entry_index as i64,
+                    target_index as i64,
+                    &mut code,
+                    &mut diagnostics,
+                );
+                raw_assert_success(status, diagnostics, "entry point code");
+                assert!(!code.is_null());
+                assert!(slang_blob_get_buffer_size(code) > 0);
+                if target_desc.format == SLANG_SPIRV {
+                    let data = slang_blob_get_buffer_pointer(code).cast::<u8>();
+                    let bytes = core::slice::from_raw_parts(data, 8);
+                    assert_eq!(
+                        u32::from_le_bytes(bytes[0..4].try_into().unwrap()),
+                        0x0723_0203
+                    );
+                    assert_eq!(
+                        u32::from_le_bytes(bytes[4..8].try_into().unwrap()),
+                        0x0001_0300
+                    );
+                }
+                release_blob(&mut code);
+            }
+            slang_program_layout_destroy(layout);
+        }
+
+        slang_component_type_destroy(linked);
+        slang_component_type_destroy(program);
+        for entry in entries {
+            slang_component_type_destroy(entry.cast());
+        }
+        slang_component_type_destroy(module.cast());
+        slang_session_destroy(session);
+        slang_file_system_destroy(file_system);
+        assert!(raw_callback_calls.load(Ordering::Relaxed) > 0);
+        slang_global_session_destroy(global);
     }
 }

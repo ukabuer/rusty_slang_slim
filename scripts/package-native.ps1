@@ -186,7 +186,7 @@ $targetConfig = switch ($Target) {
 }
 
 $buildRoot = Join-Path $repositoryRoot $targetConfig.build_directory
-$headerPath = Join-Path $repositoryRoot "native/include/slang_slim.h"
+$headerPath = Join-Path $repositoryRoot "native/include/slang_c_api.h"
 if (-not [IO.File]::Exists($headerPath)) {
     throw "Missing public header: $headerPath"
 }
@@ -215,7 +215,7 @@ try {
     [IO.Directory]::CreateDirectory($includeDirectory) | Out-Null
     [IO.Directory]::CreateDirectory($libraryDirectory) | Out-Null
 
-    Copy-Item -LiteralPath $headerPath -Destination (Join-Path $includeDirectory "slang_slim.h")
+    Copy-Item -LiteralPath $headerPath -Destination (Join-Path $includeDirectory "slang_c_api.h")
 
     $manifestLibraries = @()
     foreach ($library in $targetConfig.libraries) {

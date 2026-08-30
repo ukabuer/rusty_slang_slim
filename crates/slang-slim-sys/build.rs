@@ -76,7 +76,7 @@ struct FileManifest {
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
     println!("cargo::rerun-if-changed=native-artifacts.json");
-    println!("cargo::rerun-if-changed=../../native/include/slang_slim.h");
+    println!("cargo::rerun-if-changed=../../native/include/slang_c_api.h");
     println!("cargo::rustc-check-cfg=cfg(slang_slim_native_linked)");
     for variable in [
         ENV_NATIVE_DIR,

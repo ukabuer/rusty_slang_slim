@@ -12,7 +12,10 @@ The initial release is intentionally limited to:
 
 Consumers will download prebuilt native archives from GitHub Releases. Building Slang from source is a maintainer workflow, not part of a consumer `cargo build`.
 
-The repository currently contains only the raw `slang-slim-sys` crate. A safe `slang-slim` crate may be added later.
+The repository currently contains only the raw `slang-slim-sys` crate. Its
+API follows Slang's global-session/session/module/component flow through an
+opaque stable C ABI.
+A safe `slang-slim` crate may be added later.
 
 See [docs/design.md](docs/design.md) for the frozen v0.1 scope and
 [docs/building.md](docs/building.md) for maintainer build baselines.

@@ -52,10 +52,10 @@ endif()
 add_library(
     slang-slim-c-api
     STATIC
-    "${CMAKE_CURRENT_LIST_DIR}/src/slang_slim.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/slang_c_api.cpp"
 )
 target_compile_features(slang-slim-c-api PRIVATE cxx_std_17)
-target_compile_definitions(slang-slim-c-api PRIVATE SLANG_SLIM_BUILDING)
+target_compile_definitions(slang-slim-c-api PRIVATE SLANG_C_API_BUILDING)
 target_include_directories(
     slang-slim-c-api
     PUBLIC
