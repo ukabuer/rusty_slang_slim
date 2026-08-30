@@ -4,10 +4,11 @@ use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::env;
 use std::error::Error;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, Read, Write};
 use std::path::{Component, Path, PathBuf};
+use std::process::Command;
 
 const INDEX_JSON: &str = include_str!("native-artifacts.json");
 const MANIFEST_SCHEMA_VERSION: u32 = 1;
@@ -16,7 +17,9 @@ const DEVELOPMENT_VERSION: &str = "0.0.0";
 const SUPPORTED_TARGETS: [&str; 2] = ["x86_64-pc-windows-msvc", "aarch64-linux-android"];
 
 const ENV_NATIVE_DIR: &str = "SLANG_SLIM_NATIVE_DIR";
+const ENV_NATIVE_BUILD_DIR: &str = "SLANG_SLIM_NATIVE_BUILD_DIR";
 const ENV_NATIVE_ARCHIVE: &str = "SLANG_SLIM_NATIVE_ARCHIVE";
+const ENV_FROM_SOURCE: &str = "SLANG_SLIM_FROM_SOURCE";
 const ENV_NATIVE_SHA256: &str = "SLANG_SLIM_NATIVE_SHA256";
 const ENV_CACHE_DIR: &str = "SLANG_SLIM_CACHE_DIR";
 const ENV_RELEASE_BASE_URL: &str = "SLANG_SLIM_RELEASE_BASE_URL";
@@ -73,6 +76,92 @@ struct FileManifest {
     sha256: String,
 }
 
+#[derive(Clone, Copy)]
+struct LocalLibrary {
+    name: &'static str,
+    relative_path: &'static str,
+}
+
+struct LocalNativeLayout {
+    libraries: &'static [LocalLibrary],
+    runtime_libraries: &'static [&'static str],
+    system_libraries: &'static [&'static str],
+    arguments: &'static [&'static str],
+}
+
+const WINDOWS_LOCAL_LIBRARIES: &[LocalLibrary] = &[
+    LocalLibrary {
+        name: "slang-slim-c-api",
+        relative_path: "Release/slang-slim-c-api.lib",
+    },
+    LocalLibrary {
+        name: "slang-compiler",
+        relative_path: "slang/Release/lib/slang-compiler.lib",
+    },
+    LocalLibrary {
+        name: "compiler-core",
+        relative_path: "slang/Release/lib/compiler-core.lib",
+    },
+    LocalLibrary {
+        name: "core",
+        relative_path: "slang/Release/lib/core.lib",
+    },
+    LocalLibrary {
+        name: "miniz",
+        relative_path: "slang/external/miniz/Release/miniz.lib",
+    },
+    LocalLibrary {
+        name: "lz4",
+        relative_path: "slang/external/lz4/build/cmake/Release/lz4.lib",
+    },
+    LocalLibrary {
+        name: "cmark-gfm",
+        relative_path: "slang/external/cmark/src/Release/cmark-gfm.lib",
+    },
+];
+
+const ANDROID_LOCAL_LIBRARIES: &[LocalLibrary] = &[
+    LocalLibrary {
+        name: "slang-slim-c-api",
+        relative_path: "Release/libslang-slim-c-api.a",
+    },
+    LocalLibrary {
+        name: "slang-compiler",
+        relative_path: "slang/Release/lib/libslang-compiler.a",
+    },
+    LocalLibrary {
+        name: "compiler-core",
+        relative_path: "slang/Release/lib/libcompiler-core.a",
+    },
+    LocalLibrary {
+        name: "core",
+        relative_path: "slang/Release/lib/libcore.a",
+    },
+    LocalLibrary {
+        name: "miniz",
+        relative_path: "slang/external/miniz/Release/libminiz.a",
+    },
+    LocalLibrary {
+        name: "lz4",
+        relative_path: "slang/external/lz4/build/cmake/Release/liblz4.a",
+    },
+    LocalLibrary {
+        name: "cmark-gfm",
+        relative_path: "slang/external/cmark/src/Release/libcmark-gfm.a",
+    },
+];
+
+const WINDOWS_RUNTIME_LIBRARIES: &[&str] = &[];
+const WINDOWS_SYSTEM_LIBRARIES: &[&str] = &[
+    "kernel32", "user32", "gdi32", "winspool", "shell32", "ole32", "oleaut32", "uuid", "comdlg32",
+    "advapi32",
+];
+const WINDOWS_LINK_ARGUMENTS: &[&str] = &[];
+
+const ANDROID_RUNTIME_LIBRARIES: &[&str] = &["c++_static"];
+const ANDROID_SYSTEM_LIBRARIES: &[&str] = &["dl", "atomic", "m"];
+const ANDROID_LINK_ARGUMENTS: &[&str] = &["-pthread"];
+
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
     println!("cargo::rerun-if-changed=native-artifacts.json");
@@ -80,7 +169,9 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(slang_slim_native_linked)");
     for variable in [
         ENV_NATIVE_DIR,
+        ENV_NATIVE_BUILD_DIR,
         ENV_NATIVE_ARCHIVE,
+        ENV_FROM_SOURCE,
         ENV_NATIVE_SHA256,
         ENV_CACHE_DIR,
         ENV_RELEASE_BASE_URL,
@@ -88,6 +179,7 @@ fn main() {
         "CARGO_NET_OFFLINE",
         "CARGO_HOME",
         "CARGO_CFG_TARGET_FEATURE",
+        "CARGO_FEATURE_NATIVE",
         "DOCS_RS",
     ] {
         println!("cargo::rerun-if-env-changed={variable}");
@@ -120,19 +212,53 @@ fn run() -> BuildResult<()> {
         .iter()
         .find(|artifact| artifact.version == version && artifact.target == target);
     let native_dir = env::var_os(ENV_NATIVE_DIR);
+    let native_build_dir = env::var_os(ENV_NATIVE_BUILD_DIR);
     let native_archive = env::var_os(ENV_NATIVE_ARCHIVE);
-    if native_dir.is_some() && native_archive.is_some() {
-        return Err(format!("set only one of {ENV_NATIVE_DIR} and {ENV_NATIVE_ARCHIVE}").into());
+    let from_source = env_truthy(ENV_FROM_SOURCE);
+    if from_source {
+        println!("cargo::rerun-if-changed=../../native");
+        println!("cargo::rerun-if-changed=../../third_party/slang");
+    }
+    if from_source {
+        if native_dir.is_some() || native_build_dir.is_some() || native_archive.is_some() {
+            println!(
+                "cargo::warning={ENV_FROM_SOURCE}=1 takes precedence over native archive/directory overrides"
+            );
+        }
+    } else if [
+        native_dir.is_some(),
+        native_build_dir.is_some(),
+        native_archive.is_some(),
+    ]
+    .into_iter()
+    .filter(|configured| *configured)
+    .count()
+        > 1
+    {
+        return Err(format!(
+            "set only one of {ENV_NATIVE_DIR}, {ENV_NATIVE_BUILD_DIR}, and {ENV_NATIVE_ARCHIVE}"
+        )
+        .into());
     }
 
+    let native_required = env::var_os("CARGO_FEATURE_NATIVE").is_some();
     if version == DEVELOPMENT_VERSION
         && release.is_none()
         && native_dir.is_none()
+        && native_build_dir.is_none()
         && native_archive.is_none()
+        && !from_source
     {
+        if native_required {
+            return Err(format!(
+                "native linking is required by feature `native`; set {ENV_NATIVE_ARCHIVE} (with a sibling .sha256 file), {ENV_NATIVE_DIR}, {ENV_NATIVE_BUILD_DIR}, or {ENV_FROM_SOURCE}=1"
+            )
+            .into());
+        }
         println!(
             "cargo::warning=slang-slim-sys {DEVELOPMENT_VERSION} is source-only; set \
-             {ENV_NATIVE_ARCHIVE} or {ENV_NATIVE_DIR} to exercise native linking"
+             {ENV_NATIVE_ARCHIVE}, {ENV_NATIVE_DIR}, {ENV_NATIVE_BUILD_DIR}, or {ENV_FROM_SOURCE}=1 \
+             to exercise native linking"
         );
         return Ok(());
     }
@@ -145,6 +271,20 @@ fn run() -> BuildResult<()> {
         .into());
     }
     ensure_supported_runtime(&target)?;
+
+    if from_source {
+        let repository_root = repository_root()?;
+        let _lock = acquire_source_build_lock(&repository_root)?;
+        let build_root = build_native_from_source(&repository_root, &target)?;
+        emit_local_build_link_instructions(&build_root, &target)?;
+        return Ok(());
+    }
+
+    if let Some(path) = native_build_dir {
+        let path = resolve_user_path(path)?;
+        emit_local_build_link_instructions(&path, &target)?;
+        return Ok(());
+    }
 
     let native_root = if let Some(path) = native_dir {
         let path = resolve_user_path(path)?;
@@ -593,6 +733,259 @@ fn validate_single_line(label: &str, value: &str) -> BuildResult<()> {
     if value.contains('\r') || value.contains('\n') {
         return Err(format!("{label} must be a single line").into());
     }
+    Ok(())
+}
+
+fn repository_root() -> BuildResult<PathBuf> {
+    let manifest_dir = PathBuf::from(required_env("CARGO_MANIFEST_DIR")?);
+    manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .ok_or_else(|| "could not determine the repository root".into())
+}
+
+fn acquire_source_build_lock(repository_root: &Path) -> BuildResult<File> {
+    let build_directory = repository_root.join("build");
+    fs::create_dir_all(&build_directory)?;
+    let lock_path = build_directory.join("slang-slim-source.lock");
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(lock_path)?;
+    FileExt::lock_exclusive(&lock)?;
+    Ok(lock)
+}
+
+fn run_cmake<I, S>(
+    source_directory: &Path,
+    arguments: I,
+    environment: &[(&str, &OsStr)],
+    description: &str,
+) -> BuildResult<()>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let mut command = Command::new("cmake");
+    command.current_dir(source_directory);
+    for argument in arguments {
+        command.arg(argument);
+    }
+    for (name, value) in environment {
+        command.env(name, value);
+    }
+    let status = command
+        .status()
+        .map_err(|error| format!("{description}: failed to start CMake: {error}"))?;
+    if !status.success() {
+        return Err(format!("{description} failed with {status}").into());
+    }
+    Ok(())
+}
+
+fn ensure_cmake_configured(
+    source_directory: &Path,
+    build_directory: &Path,
+    preset: &str,
+    environment: &[(&str, &OsStr)],
+) -> BuildResult<()> {
+    if build_directory.join("CMakeCache.txt").is_file() {
+        return Ok(());
+    }
+    run_cmake(
+        source_directory,
+        ["--preset", preset],
+        environment,
+        &format!("configure CMake preset {preset}"),
+    )
+}
+
+fn android_ndk_home(repository_root: &Path) -> BuildResult<OsString> {
+    if let Some(value) = env::var_os("ANDROID_NDK_HOME") {
+        if Path::new(&value).is_dir() {
+            return Ok(value);
+        }
+        return Err(format!(
+            "ANDROID_NDK_HOME does not point to a directory: {}",
+            Path::new(&value).display()
+        )
+        .into());
+    }
+    let bundled = repository_root.join("build/toolchains/android-ndk-r27d");
+    if bundled.is_dir() {
+        return Ok(bundled.into_os_string());
+    }
+    Err(
+        "Android source builds require ANDROID_NDK_HOME or build/toolchains/android-ndk-r27d"
+            .into(),
+    )
+}
+
+fn ensure_android_host_tools(
+    repository_root: &Path,
+    source_directory: &Path,
+    environment: &[(&str, &OsStr)],
+) -> BuildResult<()> {
+    let host_tools = repository_root.join("build/native/host-tools");
+    let generator = host_tools.join("bin/slang-generate.exe");
+    if generator.is_file() {
+        return Ok(());
+    }
+
+    let windows_build = repository_root.join("build/native/windows-x64");
+    ensure_cmake_configured(source_directory, &windows_build, "windows-x64", &[])?;
+    run_cmake(
+        source_directory,
+        [
+            "--build",
+            "--preset",
+            "windows-x64-generators",
+            "--parallel",
+        ],
+        &[],
+        "build Slang host generators",
+    )?;
+
+    let arguments = vec![
+        OsString::from("--install"),
+        windows_build.as_os_str().to_os_string(),
+        OsString::from("--config"),
+        OsString::from("Release"),
+        OsString::from("--prefix"),
+        host_tools.as_os_str().to_os_string(),
+        OsString::from("--component"),
+        OsString::from("generators"),
+    ];
+    run_cmake(
+        source_directory,
+        arguments,
+        environment,
+        "install Slang host generators",
+    )
+}
+
+fn build_native_from_source(repository_root: &Path, target: &str) -> BuildResult<PathBuf> {
+    let source_directory = repository_root.join("native");
+    if !source_directory.join("CMakePresets.json").is_file() {
+        return Err(format!(
+            "native CMake source tree is missing {}",
+            source_directory.display()
+        )
+        .into());
+    }
+
+    match target {
+        "x86_64-pc-windows-msvc" => {
+            let build_directory = repository_root.join("build/native/windows-x64");
+            ensure_cmake_configured(&source_directory, &build_directory, "windows-x64", &[])?;
+            run_cmake(
+                &source_directory,
+                ["--build", "--preset", "windows-x64-release", "--parallel"],
+                &[],
+                "build Windows native Slang",
+            )?;
+            Ok(build_directory)
+        }
+        "aarch64-linux-android" => {
+            let ndk_home = android_ndk_home(repository_root)?;
+            let environment = [("ANDROID_NDK_HOME", ndk_home.as_os_str())];
+            ensure_android_host_tools(repository_root, &source_directory, &environment)?;
+
+            let build_directory = repository_root.join("build/native/android-arm64");
+            ensure_cmake_configured(
+                &source_directory,
+                &build_directory,
+                "android-arm64",
+                &environment,
+            )?;
+            run_cmake(
+                &source_directory,
+                ["--build", "--preset", "android-arm64-release", "--parallel"],
+                &environment,
+                "build Android native Slang",
+            )?;
+            Ok(build_directory)
+        }
+        _ => Err(format!("unsupported Rust target {target} for source build").into()),
+    }
+}
+
+fn local_native_layout(target: &str) -> Option<LocalNativeLayout> {
+    match target {
+        "x86_64-pc-windows-msvc" => Some(LocalNativeLayout {
+            libraries: WINDOWS_LOCAL_LIBRARIES,
+            runtime_libraries: WINDOWS_RUNTIME_LIBRARIES,
+            system_libraries: WINDOWS_SYSTEM_LIBRARIES,
+            arguments: WINDOWS_LINK_ARGUMENTS,
+        }),
+        "aarch64-linux-android" => Some(LocalNativeLayout {
+            libraries: ANDROID_LOCAL_LIBRARIES,
+            runtime_libraries: ANDROID_RUNTIME_LIBRARIES,
+            system_libraries: ANDROID_SYSTEM_LIBRARIES,
+            arguments: ANDROID_LINK_ARGUMENTS,
+        }),
+        _ => None,
+    }
+}
+
+fn emit_local_build_link_instructions(native_build_root: &Path, target: &str) -> BuildResult<()> {
+    if !native_build_root.is_dir() {
+        return Err(format!(
+            "local native build directory {} does not exist",
+            native_build_root.display()
+        )
+        .into());
+    }
+    let layout = local_native_layout(target)
+        .ok_or_else(|| format!("unsupported Rust target {target} for local native build"))?;
+
+    let mut search_paths = Vec::new();
+    for library in layout.libraries {
+        let relative = safe_relative_path(library.relative_path)?;
+        let path = native_build_root.join(&relative);
+        if !path.is_file() {
+            return Err(format!(
+                "local native library {} is missing; build the Release target before running Cargo",
+                path.display()
+            )
+            .into());
+        }
+        println!("cargo::rerun-if-changed={}", path.display());
+        let parent = path
+            .parent()
+            .ok_or_else(|| format!("local native library {} has no parent", path.display()))?;
+        if !search_paths.iter().any(|candidate| candidate == parent) {
+            search_paths.push(parent.to_owned());
+        }
+    }
+
+    for search_path in search_paths {
+        println!("cargo::rustc-link-search=native={}", search_path.display());
+    }
+    for library in layout.libraries {
+        println!("cargo::rustc-link-lib=static={}", library.name);
+    }
+    for library in layout.runtime_libraries {
+        println!("cargo::rustc-link-lib=static={library}");
+    }
+    for library in layout.system_libraries {
+        println!("cargo::rustc-link-lib={library}");
+    }
+    for argument in layout.arguments {
+        println!("cargo::rustc-link-arg={argument}");
+    }
+    println!(
+        "cargo::warning=using local native CMake build at {}; this override is not checksum-validated",
+        native_build_root.display()
+    );
+    println!(
+        "cargo::metadata=native_root={}",
+        native_build_root.display()
+    );
+    println!("cargo::rustc-cfg=slang_slim_native_linked");
     Ok(())
 }
 

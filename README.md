@@ -20,8 +20,42 @@ global-session/session/module/component workflow without adding native worker
 threads.
 
 The optional `native-tests` feature enables an integration test when a local
-native archive is available; ordinary source checks do not require a native
-artifact.
+native archive or CMake build is available; ordinary source checks do not
+require a native artifact.
+
+The safe wrapper also includes a runnable multi-target example where the main
+shader loads another shader through `#include`. It generates HLSL, SPIR-V, and
+MSL on Windows, and SPIR-V only on Android. With a local native archive
+configured, run it with:
+
+```powershell
+$env:SLANG_SLIM_NATIVE_ARCHIVE = `
+  "../../build/packages-current/slang-slim-native-v0.0.0-x86_64-pc-windows-msvc.zip"
+cargo build -p slang-slim --features native-tests --example multi_target_compile
+.\target\debug\examples\multi_target_compile.exe
+```
+
+The archive's sibling `.zip.sha256` file is checked automatically. Without a
+native archive or source override, source checks still work, but native examples
+fail early with a configuration message instead of a linker error.
+
+When iterating on the native CMake build itself, set
+`SLANG_SLIM_NATIVE_BUILD_DIR` to `build/native/windows-x64` after the Release
+preset has completed. This bypasses archive creation, checksum validation, and
+downloads, and can be used with the same tests and example. See
+[docs/building.md](docs/building.md) for the Android target command.
+
+For the one-command source workflow, set `SLANG_SLIM_FROM_SOURCE=1`; Cargo
+will invoke the matching CMake Release build before compiling the Rust target.
+This is the recommended maintainer workflow when changing the native bridge or
+the pinned Slang source:
+
+```powershell
+$env:SLANG_SLIM_FROM_SOURCE = "1"
+cargo test --workspace --features native-tests -- --nocapture
+cargo build -p slang-slim --features native-tests --example multi_target_compile
+& .\target\debug\examples\multi_target_compile.exe
+```
 
 See [docs/design.md](docs/design.md) for the frozen v0.1 scope and
 [docs/building.md](docs/building.md) for maintainer build baselines.

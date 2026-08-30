@@ -43,3 +43,12 @@ reflection, and diagnostics. A VFS handle is retained by Slang's session and
 released through the normal COM-style reference counting path.
 
 See `docs/building.md` for bootstrap and build commands.
+
+After a local Release build, the Rust tests and examples can consume the CMake
+binary directory directly by setting `SLANG_SLIM_NATIVE_BUILD_DIR`. The Rust
+build script then links the known CMake library layout without creating a
+release archive; this is a development override only and does not replace the
+manifested, checksum-validated release asset.
+
+For a one-command source build, set `SLANG_SLIM_FROM_SOURCE=1`; Cargo invokes
+the matching CMake Release preset and then links the resulting native tree.

@@ -117,6 +117,49 @@ manifest order. `SLANG_SLIM_NATIVE_DIR` can instead point at an already
 extracted package. `SLANG_SLIM_CACHE_DIR` overrides the cache location, and
 `SLANG_SLIM_RELEASE_BASE_URL` selects a GitHub-compatible mirror.
 
+If CMake has already built the native libraries, Cargo can link that tree
+directly without creating a ZIP or downloading anything. This is the explicit
+directory override (the one-command `SLANG_SLIM_FROM_SOURCE=1` path is shown
+below):
+
+```powershell
+cmake --build --preset windows-x64-release --parallel
+$env:SLANG_SLIM_NATIVE_BUILD_DIR = (Resolve-Path build/native/windows-x64).Path
+cargo test --workspace --features native-tests -- --nocapture
+cargo build -p slang-slim --features native-tests --example multi_target_compile
+& .\target\debug\examples\multi_target_compile.exe
+Remove-Item Env:SLANG_SLIM_NATIVE_BUILD_DIR
+```
+
+For Android, build `android-arm64-release`, set the variable to
+`build/native/android-arm64`, and pass `--target aarch64-linux-android` to
+Cargo. This direct-build override uses the known CMake Release library layout,
+is supported for development only, and is intentionally not checksum-validated
+or used for published consumer builds. `SLANG_SLIM_NATIVE_BUILD_DIR` is
+mutually exclusive with `SLANG_SLIM_NATIVE_DIR` and
+`SLANG_SLIM_NATIVE_ARCHIVE`. If `SLANG_SLIM_FROM_SOURCE=1` is set, it takes
+precedence over all native archive/directory overrides.
+
+The shorter source-build path is preferred when changing Slang or the native
+bridge. Set `SLANG_SLIM_FROM_SOURCE=1` and Cargo will configure the matching
+CMake preset when needed, build the Release native target, and link it into the
+Rust tests or example automatically:
+
+```powershell
+$env:SLANG_SLIM_FROM_SOURCE = "1"
+cargo test --workspace --features native-tests -- --nocapture
+cargo build -p slang-slim --features native-tests --example multi_target_compile
+& .\target\debug\examples\multi_target_compile.exe
+Remove-Item Env:SLANG_SLIM_FROM_SOURCE
+```
+
+For an Android cross build, set `ANDROID_NDK_HOME` (or keep the pinned NDK at
+`build/toolchains/android-ndk-r27d`) and add
+`--target aarch64-linux-android` to the Cargo command. The source mode also
+builds and installs the Windows host generators required by the Android Slang
+configuration. It is analogous to `rusty_v8`'s `V8_FROM_SOURCE=1` mode and is
+intended for maintainer/development builds, not published consumer builds.
+
 Version `0.0.0` remains source-only when neither local override is set. A real
 release adds immutable archive hashes to
 `crates/slang-slim-sys/native-artifacts.json`; only then is automatic download

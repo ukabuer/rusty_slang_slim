@@ -8,7 +8,7 @@ publish = false
 
 [features]
 default = []
-native-tests = []
+native-tests = ["slang-slim-sys/native"]
 
 [dependencies]
 slang-slim-sys = { path = "../slang-slim-sys", version = "0.0.0" }

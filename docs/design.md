@@ -149,3 +149,10 @@ archives; consumers still see one downloadable asset. LTO archives are not
 published.
 
 Source builds are a maintainer and CI workflow only.
+
+For maintainer iteration, `slang-slim-sys` also accepts the development-only
+`SLANG_SLIM_FROM_SOURCE=1` switch. Cargo configures/builds the matching CMake
+Release tree and links it directly; `SLANG_SLIM_NATIVE_BUILD_DIR` remains an
+explicit override for an already-built tree. Both paths bypass archive and
+checksum handling; published consumers continue to use the versioned,
+validated native asset flow.
