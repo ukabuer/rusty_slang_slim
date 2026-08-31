@@ -8,7 +8,8 @@ The initial release is intentionally limited to:
 - Android ARM64 with `minSdk` 29: SPIR-V 1.3 only.
 - Vertex, fragment, and compute entry points.
 - Multiple entry points in one HLSL translation unit.
-- Target-specific reflection JSON and virtual file-system support.
+- Target-specific Slang reflection (typed views plus JSON) and virtual
+  file-system support.
 
 Consumers will download prebuilt native archives from GitHub Releases. Building Slang from source is a maintainer workflow, not part of a consumer `cargo build`.
 

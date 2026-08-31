@@ -770,29 +770,379 @@ SLANG_C_API void slang_program_layout_destroy(ProgramLayout* layout)
     });
 }
 
-SLANG_C_API SlangResult slang_program_layout_to_json(
-    ProgramLayout* layout,
-    ISlangBlob** outJson)
+SLANG_C_API SlangReflection* slang_program_layout_get_reflection(ProgramLayout* layout)
 {
-    if (!layout || !layout->native || !outJson)
-        return SLANG_E_INVALID_ARG;
-    *outJson = nullptr;
-    try
-    {
-        SlangResult status = SLANG_FAIL;
-        Slang::ComPtr<slang::IBlob> json;
-        status = layout->native->toJson(json.writeRef());
-        exportRawBlob(json, outJson);
-        return status;
-    }
-    catch (const std::bad_alloc&)
-    {
-        return SLANG_E_OUT_OF_MEMORY;
-    }
-    catch (...)
-    {
-        return SLANG_FAIL;
-    }
+    if (!layout || !layout->native)
+        return nullptr;
+    return reinterpret_cast<SlangReflection*>(layout->native);
+}
+
+/*
+ * Reflection bridge
+ * -----------------
+ *
+ * The public C++ reflection records are intentionally layout-compatible with
+ * Slang's opaque C names.  Keep the casts in this translation unit so the
+ * packaged header never exposes a C++ vtable.  These wrappers call the C++
+ * methods rather than the deprecated spReflection_* entry points; the latter
+ * are implementation details of the currently pinned Slang release and may
+ * disappear from a future slang-deprecated.h.
+ */
+
+SLANG_C_API SlangResult slang_reflection_to_json(
+    SlangReflection* reflection,
+    ISlangBlob** outBlob)
+{
+    return reinterpret_cast<slang::ShaderReflection*>(reflection)->toJson(outBlob);
+}
+
+SLANG_C_API unsigned slang_reflection_get_parameter_count(SlangReflection* reflection)
+{
+    return reinterpret_cast<slang::ShaderReflection*>(reflection)->getParameterCount();
+}
+
+SLANG_C_API SlangReflectionParameter* slang_reflection_get_parameter_by_index(
+    SlangReflection* reflection,
+    unsigned index)
+{
+    return reinterpret_cast<SlangReflectionParameter*>(
+        reinterpret_cast<slang::ShaderReflection*>(reflection)->getParameterByIndex(index));
+}
+
+SLANG_C_API SlangUInt slang_reflection_get_entry_point_count(SlangReflection* reflection)
+{
+    return reinterpret_cast<slang::ShaderReflection*>(reflection)->getEntryPointCount();
+}
+
+SLANG_C_API SlangReflectionEntryPoint* slang_reflection_get_entry_point_by_index(
+    SlangReflection* reflection,
+    SlangUInt index)
+{
+    return reinterpret_cast<SlangReflectionEntryPoint*>(
+        reinterpret_cast<slang::ShaderReflection*>(reflection)->getEntryPointByIndex(index));
+}
+
+SLANG_C_API SlangReflectionEntryPoint* slang_reflection_find_entry_point_by_name(
+    SlangReflection* reflection,
+    const char* name)
+{
+    return reinterpret_cast<SlangReflectionEntryPoint*>(
+        reinterpret_cast<slang::ShaderReflection*>(reflection)->findEntryPointByName(name));
+}
+
+SLANG_C_API SlangReflectionType* slang_reflection_find_type_by_name(
+    SlangReflection* reflection,
+    const char* name)
+{
+    return reinterpret_cast<SlangReflectionType*>(
+        reinterpret_cast<slang::ShaderReflection*>(reflection)->findTypeByName(name));
+}
+
+SLANG_C_API SlangReflectionTypeLayout* slang_reflection_get_type_layout(
+    SlangReflection* reflection,
+    SlangReflectionType* reflectionType,
+    SlangLayoutRules rules)
+{
+    return reinterpret_cast<SlangReflectionTypeLayout*>(
+        reinterpret_cast<slang::ShaderReflection*>(reflection)->getTypeLayout(
+            reinterpret_cast<slang::TypeReflection*>(reflectionType),
+            static_cast<slang::LayoutRules>(rules)));
+}
+
+SLANG_C_API SlangReflectionTypeLayout* slang_reflection_get_global_params_type_layout(
+    SlangReflection* reflection)
+{
+    return reinterpret_cast<SlangReflectionTypeLayout*>(
+        reinterpret_cast<slang::ShaderReflection*>(reflection)->getGlobalParamsTypeLayout());
+}
+
+SLANG_C_API SlangReflectionVariableLayout* slang_reflection_get_global_params_var_layout(
+    SlangReflection* reflection)
+{
+    return reinterpret_cast<SlangReflectionVariableLayout*>(
+        reinterpret_cast<slang::ShaderReflection*>(reflection)->getGlobalParamsVarLayout());
+}
+
+SLANG_C_API const char* slang_reflection_entry_point_get_name(
+    SlangReflectionEntryPoint* entryPoint)
+{
+    return reinterpret_cast<slang::EntryPointReflection*>(entryPoint)->getName();
+}
+
+SLANG_C_API unsigned slang_reflection_entry_point_get_parameter_count(
+    SlangReflectionEntryPoint* entryPoint)
+{
+    return reinterpret_cast<slang::EntryPointReflection*>(entryPoint)->getParameterCount();
+}
+
+SLANG_C_API SlangReflectionVariableLayout*
+slang_reflection_entry_point_get_parameter_by_index(
+    SlangReflectionEntryPoint* entryPoint,
+    unsigned index)
+{
+    return reinterpret_cast<SlangReflectionVariableLayout*>(
+        reinterpret_cast<slang::EntryPointReflection*>(entryPoint)->getParameterByIndex(index));
+}
+
+SLANG_C_API SlangStage slang_reflection_entry_point_get_stage(
+    SlangReflectionEntryPoint* entryPoint)
+{
+    return reinterpret_cast<slang::EntryPointReflection*>(entryPoint)->getStage();
+}
+
+SLANG_C_API void slang_reflection_entry_point_get_compute_thread_group_size(
+    SlangReflectionEntryPoint* entryPoint,
+    SlangUInt axisCount,
+    SlangUInt* outSizeAlongAxis)
+{
+    reinterpret_cast<slang::EntryPointReflection*>(entryPoint)->getComputeThreadGroupSize(
+        axisCount,
+        outSizeAlongAxis);
+}
+
+SLANG_C_API SlangReflectionVariableLayout* slang_reflection_entry_point_get_var_layout(
+    SlangReflectionEntryPoint* entryPoint)
+{
+    return reinterpret_cast<SlangReflectionVariableLayout*>(
+        reinterpret_cast<slang::EntryPointReflection*>(entryPoint)->getVarLayout());
+}
+
+SLANG_C_API SlangReflectionVariableLayout* slang_reflection_entry_point_get_result_var_layout(
+    SlangReflectionEntryPoint* entryPoint)
+{
+    return reinterpret_cast<SlangReflectionVariableLayout*>(
+        reinterpret_cast<slang::EntryPointReflection*>(entryPoint)->getResultVarLayout());
+}
+
+SLANG_C_API SlangTypeKind slang_reflection_type_get_kind(SlangReflectionType* type)
+{
+    return static_cast<SlangTypeKind>(
+        reinterpret_cast<slang::TypeReflection*>(type)->getKind());
+}
+
+SLANG_C_API unsigned slang_reflection_type_get_field_count(SlangReflectionType* type)
+{
+    return reinterpret_cast<slang::TypeReflection*>(type)->getFieldCount();
+}
+
+SLANG_C_API SlangReflectionVariable* slang_reflection_type_get_field_by_index(
+    SlangReflectionType* type,
+    unsigned index)
+{
+    return reinterpret_cast<SlangReflectionVariable*>(
+        reinterpret_cast<slang::TypeReflection*>(type)->getFieldByIndex(index));
+}
+
+SLANG_C_API size_t slang_reflection_type_get_element_count(SlangReflectionType* type)
+{
+    return reinterpret_cast<slang::TypeReflection*>(type)->getElementCount();
+}
+
+SLANG_C_API SlangReflectionType* slang_reflection_type_get_element_type(
+    SlangReflectionType* type)
+{
+    return reinterpret_cast<SlangReflectionType*>(
+        reinterpret_cast<slang::TypeReflection*>(type)->getElementType());
+}
+
+SLANG_C_API unsigned slang_reflection_type_get_row_count(SlangReflectionType* type)
+{
+    return reinterpret_cast<slang::TypeReflection*>(type)->getRowCount();
+}
+
+SLANG_C_API unsigned slang_reflection_type_get_column_count(SlangReflectionType* type)
+{
+    return reinterpret_cast<slang::TypeReflection*>(type)->getColumnCount();
+}
+
+SLANG_C_API SlangScalarType slang_reflection_type_get_scalar_type(SlangReflectionType* type)
+{
+    return static_cast<SlangScalarType>(
+        reinterpret_cast<slang::TypeReflection*>(type)->getScalarType());
+}
+
+SLANG_C_API SlangResourceShape slang_reflection_type_get_resource_shape(
+    SlangReflectionType* type)
+{
+    return reinterpret_cast<slang::TypeReflection*>(type)->getResourceShape();
+}
+
+SLANG_C_API SlangResourceAccess slang_reflection_type_get_resource_access(
+    SlangReflectionType* type)
+{
+    return reinterpret_cast<slang::TypeReflection*>(type)->getResourceAccess();
+}
+
+SLANG_C_API SlangReflectionType* slang_reflection_type_get_resource_result_type(
+    SlangReflectionType* type)
+{
+    return reinterpret_cast<SlangReflectionType*>(
+        reinterpret_cast<slang::TypeReflection*>(type)->getResourceResultType());
+}
+
+SLANG_C_API const char* slang_reflection_type_get_name(SlangReflectionType* type)
+{
+    return reinterpret_cast<slang::TypeReflection*>(type)->getName();
+}
+
+SLANG_C_API SlangReflectionType* slang_reflection_type_layout_get_type(
+    SlangReflectionTypeLayout* type)
+{
+    return reinterpret_cast<SlangReflectionType*>(
+        reinterpret_cast<slang::TypeLayoutReflection*>(type)->getType());
+}
+
+SLANG_C_API SlangTypeKind slang_reflection_type_layout_get_kind(
+    SlangReflectionTypeLayout* type)
+{
+    return static_cast<SlangTypeKind>(
+        reinterpret_cast<slang::TypeLayoutReflection*>(type)->getKind());
+}
+
+SLANG_C_API size_t slang_reflection_type_layout_get_size(
+    SlangReflectionTypeLayout* type,
+    SlangParameterCategory category)
+{
+    return reinterpret_cast<slang::TypeLayoutReflection*>(type)->getSize(category);
+}
+
+SLANG_C_API size_t slang_reflection_type_layout_get_stride(
+    SlangReflectionTypeLayout* type,
+    SlangParameterCategory category)
+{
+    return reinterpret_cast<slang::TypeLayoutReflection*>(type)->getStride(category);
+}
+
+SLANG_C_API int32_t slang_reflection_type_layout_get_alignment(
+    SlangReflectionTypeLayout* type,
+    SlangParameterCategory category)
+{
+    return reinterpret_cast<slang::TypeLayoutReflection*>(type)->getAlignment(category);
+}
+
+SLANG_C_API uint32_t slang_reflection_type_layout_get_field_count(
+    SlangReflectionTypeLayout* type)
+{
+    return reinterpret_cast<slang::TypeLayoutReflection*>(type)->getFieldCount();
+}
+
+SLANG_C_API SlangReflectionVariableLayout* slang_reflection_type_layout_get_field_by_index(
+    SlangReflectionTypeLayout* type,
+    unsigned index)
+{
+    return reinterpret_cast<SlangReflectionVariableLayout*>(
+        reinterpret_cast<slang::TypeLayoutReflection*>(type)->getFieldByIndex(index));
+}
+
+SLANG_C_API size_t slang_reflection_type_layout_get_element_stride(
+    SlangReflectionTypeLayout* type,
+    SlangParameterCategory category)
+{
+    return reinterpret_cast<slang::TypeLayoutReflection*>(type)->getElementStride(category);
+}
+
+SLANG_C_API SlangReflectionTypeLayout* slang_reflection_type_layout_get_element_type_layout(
+    SlangReflectionTypeLayout* type)
+{
+    return reinterpret_cast<SlangReflectionTypeLayout*>(
+        reinterpret_cast<slang::TypeLayoutReflection*>(type)->getElementTypeLayout());
+}
+
+SLANG_C_API SlangReflectionVariableLayout* slang_reflection_type_layout_get_element_var_layout(
+    SlangReflectionTypeLayout* type)
+{
+    return reinterpret_cast<SlangReflectionVariableLayout*>(
+        reinterpret_cast<slang::TypeLayoutReflection*>(type)->getElementVarLayout());
+}
+
+SLANG_C_API SlangReflectionVariableLayout* slang_reflection_type_layout_get_container_var_layout(
+    SlangReflectionTypeLayout* type)
+{
+    return reinterpret_cast<SlangReflectionVariableLayout*>(
+        reinterpret_cast<slang::TypeLayoutReflection*>(type)->getContainerVarLayout());
+}
+
+SLANG_C_API SlangParameterCategory slang_reflection_type_layout_get_parameter_category(
+    SlangReflectionTypeLayout* type)
+{
+    return static_cast<SlangParameterCategory>(
+        reinterpret_cast<slang::TypeLayoutReflection*>(type)->getParameterCategory());
+}
+
+SLANG_C_API SlangMatrixLayoutMode slang_reflection_type_layout_get_matrix_layout_mode(
+    SlangReflectionTypeLayout* type)
+{
+    return reinterpret_cast<slang::TypeLayoutReflection*>(type)->getMatrixLayoutMode();
+}
+
+SLANG_C_API const char* slang_reflection_variable_get_name(SlangReflectionVariable* variable)
+{
+    return reinterpret_cast<slang::VariableReflection*>(variable)->getName();
+}
+
+SLANG_C_API SlangReflectionType* slang_reflection_variable_get_type(
+    SlangReflectionVariable* variable)
+{
+    return reinterpret_cast<SlangReflectionType*>(
+        reinterpret_cast<slang::VariableReflection*>(variable)->getType());
+}
+
+SLANG_C_API SlangReflectionVariable* slang_reflection_variable_layout_get_variable(
+    SlangReflectionVariableLayout* variable)
+{
+    return reinterpret_cast<SlangReflectionVariable*>(
+        reinterpret_cast<slang::VariableLayoutReflection*>(variable)->getVariable());
+}
+
+SLANG_C_API SlangReflectionTypeLayout* slang_reflection_variable_layout_get_type_layout(
+    SlangReflectionVariableLayout* variable)
+{
+    return reinterpret_cast<SlangReflectionTypeLayout*>(
+        reinterpret_cast<slang::VariableLayoutReflection*>(variable)->getTypeLayout());
+}
+
+SLANG_C_API size_t slang_reflection_variable_layout_get_offset(
+    SlangReflectionVariableLayout* variable,
+    SlangParameterCategory category)
+{
+    return reinterpret_cast<slang::VariableLayoutReflection*>(variable)->getOffset(category);
+}
+
+SLANG_C_API size_t slang_reflection_variable_layout_get_space(
+    SlangReflectionVariableLayout* variable,
+    SlangParameterCategory category)
+{
+    return reinterpret_cast<slang::VariableLayoutReflection*>(variable)->getBindingSpace(category);
+}
+
+SLANG_C_API const char* slang_reflection_variable_layout_get_semantic_name(
+    SlangReflectionVariableLayout* variable)
+{
+    return reinterpret_cast<slang::VariableLayoutReflection*>(variable)->getSemanticName();
+}
+
+SLANG_C_API size_t slang_reflection_variable_layout_get_semantic_index(
+    SlangReflectionVariableLayout* variable)
+{
+    return reinterpret_cast<slang::VariableLayoutReflection*>(variable)->getSemanticIndex();
+}
+
+SLANG_C_API SlangStage slang_reflection_variable_layout_get_stage(
+    SlangReflectionVariableLayout* variable)
+{
+    return reinterpret_cast<slang::VariableLayoutReflection*>(variable)->getStage();
+}
+
+SLANG_C_API unsigned slang_reflection_parameter_get_binding_index(
+    SlangReflectionParameter* parameter)
+{
+    return reinterpret_cast<slang::VariableLayoutReflection*>(parameter)->getBindingIndex();
+}
+
+SLANG_C_API unsigned slang_reflection_parameter_get_binding_space(
+    SlangReflectionParameter* parameter)
+{
+    return reinterpret_cast<slang::VariableLayoutReflection*>(parameter)->getBindingSpace();
 }
 
 SLANG_C_API void slang_blob_destroy(ISlangBlob* blob)

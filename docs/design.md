@@ -28,11 +28,27 @@ SPIR-V 1.3 output is validated against the Vulkan 1.1 environment.
 
 ## Reflection
 
-Reflection is returned as one Slang-generated JSON blob per target. Slang
-reflection objects are not exposed across the C ABI. The safe Rust crate
-returns the JSON as owned `Vec<u8>` (or a lossy UTF-8 `String` convenience
-method); typed reflection structures can be added later without changing the
-native ABI.
+Reflection follows Slang's original `ProgramLayout` flow. The native header
+exports the first typed reflection C++ API batch through stable
+`slang_reflection_*` C functions, while retaining Slang's opaque record names
+and numeric enum values. Reflection records are
+borrowed from the target program layout; the ABI does not add retain/release
+functions for them. The bridge exposes the underlying `SlangReflection*` from
+the existing layout handle, and the safe Rust wrapper keeps the owning layout
+and component graph alive while typed child views are in use.
+
+The safe wrapper currently covers program-layout entry points and global
+parameters, entry-point layouts, type and type-layout queries, variable
+layouts, binding/semantic data, and compute thread-group dimensions. The
+methods return the same absence/null semantics as Slang (`Option` in Rust) and
+copy strings into owned `String` values. Additional original reflection
+functions can be added incrementally without introducing a custom reflection
+schema.
+
+JSON remains available through Slang's original C++ `ProgramLayout::toJson`
+API. The safe wrapper returns its bytes as an owned `Vec<u8>` and provides a
+lossy UTF-8 `String` convenience method; JSON is therefore a Slang format, not
+a slang-slim-specific serialization layer.
 
 ## Virtual file system
 
@@ -64,12 +80,15 @@ not a supported use case.
 The API mirrors Slang's object flow: create a global session,
 create a session from `TargetDesc`-shaped records, load a module, find/check
 entry points, compose and link component types, then request target code and a
-program-layout reflection blob. These raw handles use `SlangResult`-compatible
-return values and return an owned reference to Slang's `ISlangBlob`; the ABI
-accessors expose its `getBufferPointer`/`getBufferSize` data without exposing
-the C++ vtable. Exported functions use the `slang_` symbol namespace and the
-Rust sys crate exposes the same Slang-shaped type and constant names. The
-native C++ facade is an implementation detail for the Rust binding.
+program-layout reflection. JSON is returned as an owned `ISlangBlob`; typed
+reflection records are borrowed pointers rooted at that layout. These raw
+handles use `SlangResult`-compatible return values and the ABI accessors expose
+blob `getBufferPointer`/`getBufferSize` data without exposing the C++ vtable.
+Exported functions use the `slang_` symbol namespace for the project-owned
+facade, including the `slang_reflection_*` functions that map one-to-one to
+Slang's C++ reflection methods. The Rust sys crate exposes the same
+Slang-shaped type and constant names. The native C++ facade is an
+implementation detail for the Rust binding.
 
 The raw `SlangTargetDesc` takes the upstream `SlangCompileTarget` and
 `SlangProfileID` values directly. Unknown formats are passed through to Slang
@@ -100,10 +119,11 @@ consume the optional diagnostic blob before deciding how to present the result.
 Slang calls are synchronous on the calling thread. The bridge does not add a
 worker, thread-affinity rule, or process-lifetime session retention: callers
 must apply the same synchronization required by Slang's own API. Returned
-code, reflection, and diagnostics are exposed as owned blob references. When
-a custom file system is passed to a session, Slang retains it through its
-internal COM-style references (including any cache wrapper) and releases it
-when the session/linkage graph is destroyed.
+code and diagnostics, plus JSON reflection, are exposed as owned blob
+references; typed reflection children are borrowed views retained by their
+program-layout owner. When a custom file system is passed to a session, Slang
+retains it through its internal COM-style references (including any cache
+wrapper) and releases it when the session/linkage graph is destroyed.
 
 The C ABI only owns the native adapter object. A Rust callback's `userData`
 is outside Slang's ownership model, so the safe wrapper keeps that state alive

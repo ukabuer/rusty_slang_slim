@@ -283,13 +283,15 @@ int main()
         }
         releaseBlob(diagnostics);
 
-        ISlangBlob* reflection = nullptr;
-        status = slang_program_layout_to_json(layout, &reflection);
-        if (SLANG_FAILED(status) || !contains(reflection, "vertex_main") ||
-            !contains(reflection, "fragment_main") || !contains(reflection, "compute_main"))
+        SlangReflection* reflection = slang_program_layout_get_reflection(layout);
+        ISlangBlob* reflectionJson = nullptr;
+        status = slang_reflection_to_json(reflection, &reflectionJson);
+        if (SLANG_FAILED(status) || !contains(reflectionJson, "vertex_main") ||
+            !contains(reflectionJson, "fragment_main") ||
+            !contains(reflectionJson, "compute_main"))
         {
-            printBlob("reflection", reflection);
-            releaseBlob(reflection);
+            printBlob("reflection", reflectionJson);
+            releaseBlob(reflectionJson);
             slang_program_layout_destroy(layout);
             slang_component_type_destroy(linked);
             slang_component_type_destroy(program);
@@ -301,7 +303,7 @@ int main()
             slang_global_session_destroy(global);
             return 1;
         }
-        releaseBlob(reflection);
+        releaseBlob(reflectionJson);
 
         for (std::size_t entryIndex = 0; entryIndex < entryPoints.size(); ++entryIndex)
         {

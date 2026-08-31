@@ -6,13 +6,13 @@
       "version": "0.1.0",
       "target": "x86_64-pc-windows-msvc",
       "archive": "slang-slim-native-v0.1.0-x86_64-pc-windows-msvc.zip",
-      "sha256": "bd41de8b2a88da327888addb93c3fe61be2873ab7d69dcde99b41f837df69bab"
+      "sha256": "407fa62ff21771b36dbd0690ca17901410068ca461ee36e12005afe648193680"
     },
     {
       "version": "0.1.0",
       "target": "aarch64-linux-android",
       "archive": "slang-slim-native-v0.1.0-aarch64-linux-android.zip",
-      "sha256": "8861ee4ca2816d9d467859a43e20fdd2abdfdfa683cc0ba53011b34beeadbe4e"
+      "sha256": "aa891bdd5e6fa2ae98149bff1f4a5ba063e99797d56667fe6894cb250b9b3388"
     }
   ]
 }

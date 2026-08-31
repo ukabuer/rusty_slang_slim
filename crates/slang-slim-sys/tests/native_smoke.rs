@@ -8,18 +8,28 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use slang_slim_sys::{
     ABI_VERSION, FileSystem, IBlob, K_DEFAULT_TARGET_FLAGS, Module, ProgramLayout,
     SLANG_C_API_ABI_VERSION, SLANG_E_INVALID_ARG, SLANG_E_NOT_FOUND, SLANG_HLSL,
-    SLANG_LANGUAGE_VERSION_2025, SLANG_METAL, SLANG_PROFILE_UNKNOWN, SLANG_SPIRV,
-    SLANG_STAGE_COMPUTE, SLANG_STAGE_FRAGMENT, SLANG_STAGE_VERTEX, Session, SlangCompileTarget,
-    SlangFileSystemDesc, SlangGlobalSessionDesc, SlangLoadFileFunc, SlangResult, SlangSessionDesc,
-    SlangStage, SlangTargetDesc, slang_abi_version, slang_blob_destroy,
-    slang_blob_get_buffer_pointer, slang_blob_get_buffer_size, slang_component_type_destroy,
+    SLANG_LANGUAGE_VERSION_2025, SLANG_LAYOUT_RULES_DEFAULT, SLANG_METAL, SLANG_PROFILE_UNKNOWN,
+    SLANG_SPIRV, SLANG_STAGE_COMPUTE, SLANG_STAGE_FRAGMENT, SLANG_STAGE_VERTEX,
+    SLANG_TYPE_KIND_STRUCT, Session, SlangCompileTarget, SlangFileSystemDesc,
+    SlangGlobalSessionDesc, SlangLoadFileFunc, SlangResult, SlangSessionDesc, SlangStage,
+    SlangTargetDesc, slang_abi_version, slang_blob_destroy, slang_blob_get_buffer_pointer,
+    slang_blob_get_buffer_size, slang_component_type_destroy,
     slang_component_type_get_entry_point_code, slang_component_type_get_layout,
     slang_component_type_link, slang_create_blob, slang_create_global_session,
     slang_file_system_create, slang_file_system_destroy, slang_global_session_create_session,
     slang_global_session_destroy, slang_global_session_find_profile,
     slang_global_session_get_build_tag, slang_module_find_and_check_entry_point,
     slang_module_get_file_path, slang_module_get_name, slang_program_layout_destroy,
-    slang_program_layout_to_json, slang_session_create_composite_component_type,
+    slang_program_layout_get_reflection,
+    slang_reflection_entry_point_get_compute_thread_group_size,
+    slang_reflection_entry_point_get_name, slang_reflection_entry_point_get_stage,
+    slang_reflection_find_type_by_name, slang_reflection_get_entry_point_by_index,
+    slang_reflection_get_entry_point_count, slang_reflection_get_parameter_count,
+    slang_reflection_get_type_layout, slang_reflection_to_json,
+    slang_reflection_type_get_field_by_index, slang_reflection_type_get_field_count,
+    slang_reflection_type_get_kind, slang_reflection_type_get_name,
+    slang_reflection_type_layout_get_field_count, slang_reflection_type_layout_get_kind,
+    slang_reflection_type_layout_get_size, slang_session_create_composite_component_type,
     slang_session_destroy, slang_session_load_module_from_source,
 };
 
@@ -286,6 +296,10 @@ fn slang_c_api_is_callable_from_rust() {
         raw_assert_success(status, diagnostics, "link component");
         assert!(!linked.is_null());
 
+        // A ProgramLayout owns a reference to the linked component, while the
+        // reflection records returned from it are borrowed. Keep every layout
+        // alive until all of its borrowed records have been queried.
+        let mut layouts = Vec::with_capacity(raw_targets.len());
         for (target_index, target_desc) in raw_targets.iter().enumerate() {
             let mut layout = ptr::null_mut::<ProgramLayout>();
             diagnostics = ptr::null_mut();
@@ -297,18 +311,84 @@ fn slang_c_api_is_callable_from_rust() {
             );
             raw_assert_success(status, diagnostics, "get layout");
             assert!(!layout.is_null());
+            layouts.push(layout);
 
-            let mut reflection = ptr::null_mut::<IBlob>();
+            // The sys crate exposes the original Slang reflection C symbols
+            // through bridge functions backed by Slang's C++ reflection API.
+            // The returned records are borrowed from the layout and must not
+            // be released independently.
+            let raw_reflection = slang_program_layout_get_reflection(layout);
+            assert!(!raw_reflection.is_null());
+            assert_eq!(slang_reflection_get_parameter_count(raw_reflection), 0);
+            let mut direct_json = ptr::null_mut::<IBlob>();
             raw_assert_success(
-                slang_program_layout_to_json(layout, &mut reflection),
+                slang_reflection_to_json(raw_reflection, &mut direct_json),
                 ptr::null_mut(),
-                "layout reflection JSON",
+                "direct reflection JSON",
             );
-            let reflection_text = raw_blob_text(reflection);
-            assert!(reflection_text.contains("vertex_main"));
-            assert!(reflection_text.contains("fragment_main"));
-            assert!(reflection_text.contains("compute_main"));
-            release_blob(&mut reflection);
+            assert!(raw_blob_text(direct_json).contains("compute_main"));
+            release_blob(&mut direct_json);
+            assert_eq!(slang_reflection_get_entry_point_count(raw_reflection), 3);
+            for (index, (name, stage)) in [
+                ("vertex_main", SLANG_STAGE_VERTEX),
+                ("fragment_main", SLANG_STAGE_FRAGMENT),
+                ("compute_main", SLANG_STAGE_COMPUTE),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let entry = slang_reflection_get_entry_point_by_index(raw_reflection, index as u64);
+                assert!(!entry.is_null());
+                assert_eq!(
+                    CStr::from_ptr(slang_reflection_entry_point_get_name(entry)).to_bytes(),
+                    name.as_bytes()
+                );
+                assert_eq!(slang_reflection_entry_point_get_stage(entry), stage);
+                if stage == SLANG_STAGE_COMPUTE {
+                    let mut group_size = [0_u64; 3];
+                    slang_reflection_entry_point_get_compute_thread_group_size(
+                        entry,
+                        group_size.len() as u64,
+                        group_size.as_mut_ptr(),
+                    );
+                    assert_eq!(group_size, [1, 1, 1]);
+                }
+            }
+
+            let type_name = CString::new("VertexOutput").unwrap();
+            let reflected_type =
+                slang_reflection_find_type_by_name(raw_reflection, type_name.as_ptr());
+            assert!(!reflected_type.is_null());
+            assert_eq!(
+                slang_reflection_type_get_kind(reflected_type),
+                SLANG_TYPE_KIND_STRUCT
+            );
+            assert_eq!(
+                CStr::from_ptr(slang_reflection_type_get_name(reflected_type)).to_bytes(),
+                b"VertexOutput"
+            );
+            assert_eq!(slang_reflection_type_get_field_count(reflected_type), 2);
+            let first_field = slang_reflection_type_get_field_by_index(reflected_type, 0);
+            assert!(!first_field.is_null());
+            assert_eq!(
+                CStr::from_ptr(slang_slim_sys::slang_reflection_variable_get_name(
+                    first_field
+                ))
+                .to_bytes(),
+                b"position"
+            );
+            let type_layout = slang_reflection_get_type_layout(
+                raw_reflection,
+                reflected_type,
+                SLANG_LAYOUT_RULES_DEFAULT,
+            );
+            assert!(!type_layout.is_null());
+            assert_eq!(
+                slang_reflection_type_layout_get_kind(type_layout),
+                SLANG_TYPE_KIND_STRUCT
+            );
+            assert_eq!(slang_reflection_type_layout_get_field_count(type_layout), 2);
+            assert!(slang_reflection_type_layout_get_size(type_layout, 8) > 0);
 
             for entry_index in 0..entries.len() {
                 let mut code = ptr::null_mut::<IBlob>();
@@ -337,9 +417,11 @@ fn slang_c_api_is_callable_from_rust() {
                 }
                 release_blob(&mut code);
             }
-            slang_program_layout_destroy(layout);
         }
 
+        for layout in layouts {
+            slang_program_layout_destroy(layout);
+        }
         slang_component_type_destroy(linked);
         slang_component_type_destroy(program);
         for entry in entries {

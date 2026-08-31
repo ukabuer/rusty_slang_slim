@@ -30,6 +30,14 @@ implementation details used to provide the Rust binding; no downstream C++
 compatibility promise is made. See `docs/design.md` for the ownership and
 source-model decisions.
 
+The header also exports the first batch of Slang's C++ reflection methods as
+stable `slang_reflection_*` C functions. This avoids depending on the
+upstream `spReflection_*` declarations in `slang-deprecated.h`. Reflection
+records are borrowed from a program layout and are intentionally not released
+through a separate ABI. The safe crate wraps these calls as typed views while
+retaining the owning component; `ProgramLayout::toJson` remains available for
+Slang's JSON representation.
+
 `SlangResult` keeps Slang's HRESULT convention: values below zero are failures,
 while zero and positive values are successes. Compilation APIs return warning
 and informational text through their diagnostic blob even when the result is

@@ -269,9 +269,184 @@ pub type Module = IComponentType;
 pub type EntryPoint = IComponentType;
 
 #[repr(C)]
+pub struct SlangCompileRequest {
+    _private: [u8; 0],
+}
+
+#[repr(C)]
 pub struct ProgramLayout {
     _private: [u8; 0],
 }
+
+/// Slang's program-layout reflection object. The object is borrowed from the
+/// component type that produced it and must not be released independently.
+#[repr(C)]
+pub struct SlangProgramLayout {
+    _private: [u8; 0],
+}
+pub type SlangReflection = SlangProgramLayout;
+
+#[repr(C)]
+pub struct SlangEntryPointLayout {
+    _private: [u8; 0],
+}
+pub type SlangReflectionEntryPoint = SlangEntryPointLayout;
+
+#[repr(C)]
+pub struct SlangReflectionType {
+    _private: [u8; 0],
+}
+
+#[repr(C)]
+pub struct SlangReflectionTypeLayout {
+    _private: [u8; 0],
+}
+
+#[repr(C)]
+pub struct SlangReflectionVariable {
+    _private: [u8; 0],
+}
+
+#[repr(C)]
+pub struct SlangReflectionVariableLayout {
+    _private: [u8; 0],
+}
+pub type SlangReflectionParameter = SlangReflectionVariableLayout;
+
+pub type SlangTypeKind = u32;
+pub const SLANG_TYPE_KIND_NONE: SlangTypeKind = 0;
+pub const SLANG_TYPE_KIND_STRUCT: SlangTypeKind = 1;
+pub const SLANG_TYPE_KIND_ARRAY: SlangTypeKind = 2;
+pub const SLANG_TYPE_KIND_MATRIX: SlangTypeKind = 3;
+pub const SLANG_TYPE_KIND_VECTOR: SlangTypeKind = 4;
+pub const SLANG_TYPE_KIND_SCALAR: SlangTypeKind = 5;
+pub const SLANG_TYPE_KIND_CONSTANT_BUFFER: SlangTypeKind = 6;
+pub const SLANG_TYPE_KIND_RESOURCE: SlangTypeKind = 7;
+pub const SLANG_TYPE_KIND_SAMPLER_STATE: SlangTypeKind = 8;
+pub const SLANG_TYPE_KIND_TEXTURE_BUFFER: SlangTypeKind = 9;
+pub const SLANG_TYPE_KIND_SHADER_STORAGE_BUFFER: SlangTypeKind = 10;
+pub const SLANG_TYPE_KIND_PARAMETER_BLOCK: SlangTypeKind = 11;
+pub const SLANG_TYPE_KIND_GENERIC_TYPE_PARAMETER: SlangTypeKind = 12;
+pub const SLANG_TYPE_KIND_INTERFACE: SlangTypeKind = 13;
+pub const SLANG_TYPE_KIND_OUTPUT_STREAM: SlangTypeKind = 14;
+pub const SLANG_TYPE_KIND_MESH_OUTPUT: SlangTypeKind = 15;
+pub const SLANG_TYPE_KIND_SPECIALIZED: SlangTypeKind = 16;
+pub const SLANG_TYPE_KIND_FEEDBACK: SlangTypeKind = 17;
+pub const SLANG_TYPE_KIND_POINTER: SlangTypeKind = 18;
+pub const SLANG_TYPE_KIND_DYNAMIC_RESOURCE: SlangTypeKind = 19;
+pub const SLANG_TYPE_KIND_ENUM: SlangTypeKind = 20;
+pub const SLANG_TYPE_KIND_COUNT: SlangTypeKind = 21;
+
+pub type SlangScalarType = u32;
+pub const SLANG_SCALAR_TYPE_NONE: SlangScalarType = 0;
+pub const SLANG_SCALAR_TYPE_VOID: SlangScalarType = 1;
+pub const SLANG_SCALAR_TYPE_BOOL: SlangScalarType = 2;
+pub const SLANG_SCALAR_TYPE_INT32: SlangScalarType = 3;
+pub const SLANG_SCALAR_TYPE_UINT32: SlangScalarType = 4;
+pub const SLANG_SCALAR_TYPE_INT64: SlangScalarType = 5;
+pub const SLANG_SCALAR_TYPE_UINT64: SlangScalarType = 6;
+pub const SLANG_SCALAR_TYPE_FLOAT16: SlangScalarType = 7;
+pub const SLANG_SCALAR_TYPE_FLOAT32: SlangScalarType = 8;
+pub const SLANG_SCALAR_TYPE_FLOAT64: SlangScalarType = 9;
+pub const SLANG_SCALAR_TYPE_INT8: SlangScalarType = 10;
+pub const SLANG_SCALAR_TYPE_UINT8: SlangScalarType = 11;
+pub const SLANG_SCALAR_TYPE_INT16: SlangScalarType = 12;
+pub const SLANG_SCALAR_TYPE_UINT16: SlangScalarType = 13;
+pub const SLANG_SCALAR_TYPE_INTPTR: SlangScalarType = 14;
+pub const SLANG_SCALAR_TYPE_UINTPTR: SlangScalarType = 15;
+pub const SLANG_SCALAR_TYPE_BFLOAT16: SlangScalarType = 16;
+pub const SLANG_SCALAR_TYPE_FLOAT_E4M3: SlangScalarType = 17;
+pub const SLANG_SCALAR_TYPE_FLOAT_E5M2: SlangScalarType = 18;
+
+pub type SlangResourceShape = u32;
+pub const SLANG_RESOURCE_BASE_SHAPE_MASK: SlangResourceShape = 0x0F;
+pub const SLANG_RESOURCE_NONE: SlangResourceShape = 0x00;
+pub const SLANG_TEXTURE_1D: SlangResourceShape = 0x01;
+pub const SLANG_TEXTURE_2D: SlangResourceShape = 0x02;
+pub const SLANG_TEXTURE_3D: SlangResourceShape = 0x03;
+pub const SLANG_TEXTURE_CUBE: SlangResourceShape = 0x04;
+pub const SLANG_TEXTURE_BUFFER: SlangResourceShape = 0x05;
+pub const SLANG_STRUCTURED_BUFFER: SlangResourceShape = 0x06;
+pub const SLANG_BYTE_ADDRESS_BUFFER: SlangResourceShape = 0x07;
+pub const SLANG_RESOURCE_UNKNOWN: SlangResourceShape = 0x08;
+pub const SLANG_ACCELERATION_STRUCTURE: SlangResourceShape = 0x09;
+pub const SLANG_TEXTURE_SUBPASS: SlangResourceShape = 0x0A;
+pub const SLANG_RESOURCE_EXT_SHAPE_MASK: SlangResourceShape = 0x1F0;
+pub const SLANG_TEXTURE_FEEDBACK_FLAG: SlangResourceShape = 0x10;
+pub const SLANG_TEXTURE_SHADOW_FLAG: SlangResourceShape = 0x20;
+pub const SLANG_TEXTURE_ARRAY_FLAG: SlangResourceShape = 0x40;
+pub const SLANG_TEXTURE_MULTISAMPLE_FLAG: SlangResourceShape = 0x80;
+pub const SLANG_TEXTURE_COMBINED_FLAG: SlangResourceShape = 0x100;
+pub const SLANG_TEXTURE_1D_ARRAY: SlangResourceShape = SLANG_TEXTURE_1D | SLANG_TEXTURE_ARRAY_FLAG;
+pub const SLANG_TEXTURE_2D_ARRAY: SlangResourceShape = SLANG_TEXTURE_2D | SLANG_TEXTURE_ARRAY_FLAG;
+pub const SLANG_TEXTURE_CUBE_ARRAY: SlangResourceShape =
+    SLANG_TEXTURE_CUBE | SLANG_TEXTURE_ARRAY_FLAG;
+pub const SLANG_TEXTURE_2D_MULTISAMPLE: SlangResourceShape =
+    SLANG_TEXTURE_2D | SLANG_TEXTURE_MULTISAMPLE_FLAG;
+pub const SLANG_TEXTURE_2D_MULTISAMPLE_ARRAY: SlangResourceShape =
+    SLANG_TEXTURE_2D | SLANG_TEXTURE_MULTISAMPLE_FLAG | SLANG_TEXTURE_ARRAY_FLAG;
+pub const SLANG_TEXTURE_SUBPASS_MULTISAMPLE: SlangResourceShape =
+    SLANG_TEXTURE_SUBPASS | SLANG_TEXTURE_MULTISAMPLE_FLAG;
+
+pub type SlangResourceAccess = u32;
+pub const SLANG_RESOURCE_ACCESS_NONE: SlangResourceAccess = 0;
+pub const SLANG_RESOURCE_ACCESS_READ: SlangResourceAccess = 1;
+pub const SLANG_RESOURCE_ACCESS_READ_WRITE: SlangResourceAccess = 2;
+pub const SLANG_RESOURCE_ACCESS_RASTER_ORDERED: SlangResourceAccess = 3;
+pub const SLANG_RESOURCE_ACCESS_APPEND: SlangResourceAccess = 4;
+pub const SLANG_RESOURCE_ACCESS_CONSUME: SlangResourceAccess = 5;
+pub const SLANG_RESOURCE_ACCESS_WRITE: SlangResourceAccess = 6;
+pub const SLANG_RESOURCE_ACCESS_FEEDBACK: SlangResourceAccess = 7;
+pub const SLANG_RESOURCE_ACCESS_UNKNOWN: SlangResourceAccess = 0x7FFF_FFFF;
+
+pub type SlangParameterCategory = u32;
+pub const SLANG_PARAMETER_CATEGORY_NONE: SlangParameterCategory = 0;
+pub const SLANG_PARAMETER_CATEGORY_MIXED: SlangParameterCategory = 1;
+pub const SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER: SlangParameterCategory = 2;
+pub const SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE: SlangParameterCategory = 3;
+pub const SLANG_PARAMETER_CATEGORY_UNORDERED_ACCESS: SlangParameterCategory = 4;
+pub const SLANG_PARAMETER_CATEGORY_VARYING_INPUT: SlangParameterCategory = 5;
+pub const SLANG_PARAMETER_CATEGORY_VARYING_OUTPUT: SlangParameterCategory = 6;
+pub const SLANG_PARAMETER_CATEGORY_SAMPLER_STATE: SlangParameterCategory = 7;
+pub const SLANG_PARAMETER_CATEGORY_UNIFORM: SlangParameterCategory = 8;
+pub const SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT: SlangParameterCategory = 9;
+pub const SLANG_PARAMETER_CATEGORY_SPECIALIZATION_CONSTANT: SlangParameterCategory = 10;
+pub const SLANG_PARAMETER_CATEGORY_PUSH_CONSTANT_BUFFER: SlangParameterCategory = 11;
+pub const SLANG_PARAMETER_CATEGORY_REGISTER_SPACE: SlangParameterCategory = 12;
+pub const SLANG_PARAMETER_CATEGORY_GENERIC: SlangParameterCategory = 13;
+pub const SLANG_PARAMETER_CATEGORY_RAY_PAYLOAD: SlangParameterCategory = 14;
+pub const SLANG_PARAMETER_CATEGORY_HIT_ATTRIBUTES: SlangParameterCategory = 15;
+pub const SLANG_PARAMETER_CATEGORY_CALLABLE_PAYLOAD: SlangParameterCategory = 16;
+pub const SLANG_PARAMETER_CATEGORY_SHADER_RECORD: SlangParameterCategory = 17;
+pub const SLANG_PARAMETER_CATEGORY_EXISTENTIAL_TYPE_PARAM: SlangParameterCategory = 18;
+pub const SLANG_PARAMETER_CATEGORY_EXISTENTIAL_OBJECT_PARAM: SlangParameterCategory = 19;
+pub const SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE: SlangParameterCategory = 20;
+pub const SLANG_PARAMETER_CATEGORY_SUBPASS: SlangParameterCategory = 21;
+pub const SLANG_PARAMETER_CATEGORY_METAL_ARGUMENT_BUFFER_ELEMENT: SlangParameterCategory = 22;
+pub const SLANG_PARAMETER_CATEGORY_METAL_ATTRIBUTE: SlangParameterCategory = 23;
+pub const SLANG_PARAMETER_CATEGORY_METAL_PAYLOAD: SlangParameterCategory = 24;
+pub const SLANG_PARAMETER_CATEGORY_COUNT: SlangParameterCategory = 25;
+pub const SLANG_PARAMETER_CATEGORY_METAL_BUFFER: SlangParameterCategory =
+    SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER;
+pub const SLANG_PARAMETER_CATEGORY_METAL_TEXTURE: SlangParameterCategory =
+    SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE;
+pub const SLANG_PARAMETER_CATEGORY_METAL_SAMPLER: SlangParameterCategory =
+    SLANG_PARAMETER_CATEGORY_SAMPLER_STATE;
+pub const SLANG_PARAMETER_CATEGORY_VERTEX_INPUT: SlangParameterCategory =
+    SLANG_PARAMETER_CATEGORY_VARYING_INPUT;
+pub const SLANG_PARAMETER_CATEGORY_FRAGMENT_OUTPUT: SlangParameterCategory =
+    SLANG_PARAMETER_CATEGORY_VARYING_OUTPUT;
+pub const SLANG_PARAMETER_CATEGORY_COUNT_V1: SlangParameterCategory =
+    SLANG_PARAMETER_CATEGORY_SUBPASS;
+
+pub type SlangLayoutRules = u32;
+pub const SLANG_LAYOUT_RULES_DEFAULT: SlangLayoutRules = 0;
+pub const SLANG_LAYOUT_RULES_METAL_ARGUMENT_BUFFER_TIER_2: SlangLayoutRules = 1;
+pub const SLANG_LAYOUT_RULES_DEFAULT_STRUCTURED_BUFFER: SlangLayoutRules = 2;
+pub const SLANG_LAYOUT_RULES_DEFAULT_CONSTANT_BUFFER: SlangLayoutRules = 3;
+
+pub const SLANG_UNBOUNDED_SIZE: usize = usize::MAX;
+pub const SLANG_UNKNOWN_SIZE: usize = usize::MAX - 1;
 
 #[repr(C)]
 pub struct ISlangBlob {
@@ -373,10 +548,173 @@ unsafe extern "C" {
     ) -> SlangResult;
 
     pub fn slang_program_layout_destroy(layout: *mut ProgramLayout);
-    pub fn slang_program_layout_to_json(
-        layout: *mut ProgramLayout,
-        out_json: *mut *mut ISlangBlob,
+    pub fn slang_program_layout_get_reflection(layout: *mut ProgramLayout) -> *mut SlangReflection;
+
+    pub fn slang_reflection_to_json(
+        reflection: *mut SlangReflection,
+        out_blob: *mut *mut ISlangBlob,
     ) -> SlangResult;
+    pub fn slang_reflection_get_parameter_count(reflection: *mut SlangReflection) -> u32;
+    pub fn slang_reflection_get_parameter_by_index(
+        reflection: *mut SlangReflection,
+        index: u32,
+    ) -> *mut SlangReflectionParameter;
+    pub fn slang_reflection_get_entry_point_count(reflection: *mut SlangReflection) -> SlangUInt;
+    pub fn slang_reflection_get_entry_point_by_index(
+        reflection: *mut SlangReflection,
+        index: SlangUInt,
+    ) -> *mut SlangReflectionEntryPoint;
+    pub fn slang_reflection_find_entry_point_by_name(
+        reflection: *mut SlangReflection,
+        name: *const c_char,
+    ) -> *mut SlangReflectionEntryPoint;
+    pub fn slang_reflection_find_type_by_name(
+        reflection: *mut SlangReflection,
+        name: *const c_char,
+    ) -> *mut SlangReflectionType;
+    pub fn slang_reflection_get_type_layout(
+        reflection: *mut SlangReflection,
+        reflection_type: *mut SlangReflectionType,
+        rules: SlangLayoutRules,
+    ) -> *mut SlangReflectionTypeLayout;
+    pub fn slang_reflection_get_global_params_type_layout(
+        reflection: *mut SlangReflection,
+    ) -> *mut SlangReflectionTypeLayout;
+    pub fn slang_reflection_get_global_params_var_layout(
+        reflection: *mut SlangReflection,
+    ) -> *mut SlangReflectionVariableLayout;
+
+    pub fn slang_reflection_entry_point_get_name(
+        entry_point: *mut SlangReflectionEntryPoint,
+    ) -> *const c_char;
+    pub fn slang_reflection_entry_point_get_parameter_count(
+        entry_point: *mut SlangReflectionEntryPoint,
+    ) -> u32;
+    pub fn slang_reflection_entry_point_get_parameter_by_index(
+        entry_point: *mut SlangReflectionEntryPoint,
+        index: u32,
+    ) -> *mut SlangReflectionVariableLayout;
+    pub fn slang_reflection_entry_point_get_stage(
+        entry_point: *mut SlangReflectionEntryPoint,
+    ) -> SlangStage;
+    pub fn slang_reflection_entry_point_get_compute_thread_group_size(
+        entry_point: *mut SlangReflectionEntryPoint,
+        axis_count: SlangUInt,
+        out_size_along_axis: *mut SlangUInt,
+    );
+    pub fn slang_reflection_entry_point_get_var_layout(
+        entry_point: *mut SlangReflectionEntryPoint,
+    ) -> *mut SlangReflectionVariableLayout;
+    pub fn slang_reflection_entry_point_get_result_var_layout(
+        entry_point: *mut SlangReflectionEntryPoint,
+    ) -> *mut SlangReflectionVariableLayout;
+
+    pub fn slang_reflection_type_get_kind(type_: *mut SlangReflectionType) -> SlangTypeKind;
+    pub fn slang_reflection_type_get_field_count(type_: *mut SlangReflectionType) -> u32;
+    pub fn slang_reflection_type_get_field_by_index(
+        type_: *mut SlangReflectionType,
+        index: u32,
+    ) -> *mut SlangReflectionVariable;
+    pub fn slang_reflection_type_get_element_count(type_: *mut SlangReflectionType) -> usize;
+    pub fn slang_reflection_type_get_element_type(
+        type_: *mut SlangReflectionType,
+    ) -> *mut SlangReflectionType;
+    pub fn slang_reflection_type_get_row_count(type_: *mut SlangReflectionType) -> u32;
+    pub fn slang_reflection_type_get_column_count(type_: *mut SlangReflectionType) -> u32;
+    pub fn slang_reflection_type_get_scalar_type(
+        type_: *mut SlangReflectionType,
+    ) -> SlangScalarType;
+    pub fn slang_reflection_type_get_resource_shape(
+        type_: *mut SlangReflectionType,
+    ) -> SlangResourceShape;
+    pub fn slang_reflection_type_get_resource_access(
+        type_: *mut SlangReflectionType,
+    ) -> SlangResourceAccess;
+    pub fn slang_reflection_type_get_resource_result_type(
+        type_: *mut SlangReflectionType,
+    ) -> *mut SlangReflectionType;
+    pub fn slang_reflection_type_get_name(type_: *mut SlangReflectionType) -> *const c_char;
+
+    pub fn slang_reflection_type_layout_get_type(
+        type_: *mut SlangReflectionTypeLayout,
+    ) -> *mut SlangReflectionType;
+    pub fn slang_reflection_type_layout_get_kind(
+        type_: *mut SlangReflectionTypeLayout,
+    ) -> SlangTypeKind;
+    pub fn slang_reflection_type_layout_get_size(
+        type_: *mut SlangReflectionTypeLayout,
+        category: SlangParameterCategory,
+    ) -> usize;
+    pub fn slang_reflection_type_layout_get_stride(
+        type_: *mut SlangReflectionTypeLayout,
+        category: SlangParameterCategory,
+    ) -> usize;
+    pub fn slang_reflection_type_layout_get_alignment(
+        type_: *mut SlangReflectionTypeLayout,
+        category: SlangParameterCategory,
+    ) -> i32;
+    pub fn slang_reflection_type_layout_get_field_count(
+        type_: *mut SlangReflectionTypeLayout,
+    ) -> u32;
+    pub fn slang_reflection_type_layout_get_field_by_index(
+        type_: *mut SlangReflectionTypeLayout,
+        index: u32,
+    ) -> *mut SlangReflectionVariableLayout;
+    pub fn slang_reflection_type_layout_get_element_stride(
+        type_: *mut SlangReflectionTypeLayout,
+        category: SlangParameterCategory,
+    ) -> usize;
+    pub fn slang_reflection_type_layout_get_element_type_layout(
+        type_: *mut SlangReflectionTypeLayout,
+    ) -> *mut SlangReflectionTypeLayout;
+    pub fn slang_reflection_type_layout_get_element_var_layout(
+        type_: *mut SlangReflectionTypeLayout,
+    ) -> *mut SlangReflectionVariableLayout;
+    pub fn slang_reflection_type_layout_get_container_var_layout(
+        type_: *mut SlangReflectionTypeLayout,
+    ) -> *mut SlangReflectionVariableLayout;
+    pub fn slang_reflection_type_layout_get_parameter_category(
+        type_: *mut SlangReflectionTypeLayout,
+    ) -> SlangParameterCategory;
+    pub fn slang_reflection_type_layout_get_matrix_layout_mode(
+        type_: *mut SlangReflectionTypeLayout,
+    ) -> SlangMatrixLayoutMode;
+
+    pub fn slang_reflection_variable_get_name(
+        variable: *mut SlangReflectionVariable,
+    ) -> *const c_char;
+    pub fn slang_reflection_variable_get_type(
+        variable: *mut SlangReflectionVariable,
+    ) -> *mut SlangReflectionType;
+    pub fn slang_reflection_variable_layout_get_variable(
+        variable: *mut SlangReflectionVariableLayout,
+    ) -> *mut SlangReflectionVariable;
+    pub fn slang_reflection_variable_layout_get_type_layout(
+        variable: *mut SlangReflectionVariableLayout,
+    ) -> *mut SlangReflectionTypeLayout;
+    pub fn slang_reflection_variable_layout_get_offset(
+        variable: *mut SlangReflectionVariableLayout,
+        category: SlangParameterCategory,
+    ) -> usize;
+    pub fn slang_reflection_variable_layout_get_space(
+        variable: *mut SlangReflectionVariableLayout,
+        category: SlangParameterCategory,
+    ) -> usize;
+    pub fn slang_reflection_variable_layout_get_semantic_name(
+        variable: *mut SlangReflectionVariableLayout,
+    ) -> *const c_char;
+    pub fn slang_reflection_variable_layout_get_semantic_index(
+        variable: *mut SlangReflectionVariableLayout,
+    ) -> usize;
+    pub fn slang_reflection_variable_layout_get_stage(
+        variable: *mut SlangReflectionVariableLayout,
+    ) -> SlangStage;
+    pub fn slang_reflection_parameter_get_binding_index(
+        parameter: *mut SlangReflectionParameter,
+    ) -> u32;
+    pub fn slang_reflection_parameter_get_binding_space(
+        parameter: *mut SlangReflectionParameter,
+    ) -> u32;
 
     pub fn slang_blob_destroy(blob: *mut ISlangBlob);
     pub fn slang_blob_get_buffer_pointer(blob: *mut ISlangBlob) -> *const c_void;
@@ -393,12 +731,13 @@ pub mod slang {
         COMPILER_OPTION_EMIT_REFLECTION_JSON, COMPILER_OPTION_EMIT_SPIRV_DIRECTLY,
         COMPILER_OPTION_MATRIX_LAYOUT_COLUMN, COMPILER_OPTION_MATRIX_LAYOUT_ROW,
         COMPILER_OPTION_VALUE_INT, COMPILER_OPTION_VALUE_STRING, K_DEFAULT_TARGET_FLAGS,
-        K_SESSION_FLAGS_NONE, SLANG_API_VERSION, SLANG_C_SOURCE, SLANG_CPP_HEADER,
-        SLANG_CPP_PYTORCH_BINDING, SLANG_CPP_SOURCE, SLANG_CUDA_HEADER, SLANG_CUDA_OBJECT_CODE,
-        SLANG_CUDA_SOURCE, SLANG_DXBC, SLANG_DXBC_ASM, SLANG_DXIL, SLANG_DXIL_ASM,
-        SLANG_E_CANNOT_OPEN, SLANG_E_INVALID_ARG, SLANG_E_INVALID_HANDLE, SLANG_E_NO_INTERFACE,
-        SLANG_E_NOT_AVAILABLE, SLANG_E_NOT_FOUND, SLANG_E_NOT_IMPLEMENTED, SLANG_E_OUT_OF_MEMORY,
-        SLANG_FAIL, SLANG_FLOATING_POINT_MODE_DEFAULT, SLANG_FLOATING_POINT_MODE_FAST,
+        K_SESSION_FLAGS_NONE, SLANG_ACCELERATION_STRUCTURE, SLANG_API_VERSION,
+        SLANG_BYTE_ADDRESS_BUFFER, SLANG_C_SOURCE, SLANG_CPP_HEADER, SLANG_CPP_PYTORCH_BINDING,
+        SLANG_CPP_SOURCE, SLANG_CUDA_HEADER, SLANG_CUDA_OBJECT_CODE, SLANG_CUDA_SOURCE, SLANG_DXBC,
+        SLANG_DXBC_ASM, SLANG_DXIL, SLANG_DXIL_ASM, SLANG_E_CANNOT_OPEN, SLANG_E_INVALID_ARG,
+        SLANG_E_INVALID_HANDLE, SLANG_E_NO_INTERFACE, SLANG_E_NOT_AVAILABLE, SLANG_E_NOT_FOUND,
+        SLANG_E_NOT_IMPLEMENTED, SLANG_E_OUT_OF_MEMORY, SLANG_FAIL,
+        SLANG_FLOATING_POINT_MODE_DEFAULT, SLANG_FLOATING_POINT_MODE_FAST,
         SLANG_FLOATING_POINT_MODE_PRECISE, SLANG_GLSL, SLANG_GLSL_VULKAN_DEPRECATED,
         SLANG_GLSL_VULKAN_ONE_DESC_DEPRECATED, SLANG_HLSL, SLANG_HOST_CPP_SOURCE,
         SLANG_HOST_EXECUTABLE, SLANG_HOST_HOST_CALLABLE, SLANG_HOST_LLVM_IR,
@@ -406,34 +745,83 @@ pub mod slang {
         SLANG_LANGUAGE_VERSION_202A, SLANG_LANGUAGE_VERSION_202B, SLANG_LANGUAGE_VERSION_202C,
         SLANG_LANGUAGE_VERSION_2025, SLANG_LANGUAGE_VERSION_2026, SLANG_LANGUAGE_VERSION_DEFAULT,
         SLANG_LANGUAGE_VERSION_LATEST, SLANG_LANGUAGE_VERSION_LEGACY, SLANG_LANGUAGE_VERSION_NEXT,
-        SLANG_LANGUAGE_VERSION_UNKNOWN, SLANG_LINE_DIRECTIVE_MODE_DEFAULT,
+        SLANG_LANGUAGE_VERSION_UNKNOWN, SLANG_LAYOUT_RULES_DEFAULT,
+        SLANG_LAYOUT_RULES_DEFAULT_CONSTANT_BUFFER, SLANG_LAYOUT_RULES_DEFAULT_STRUCTURED_BUFFER,
+        SLANG_LAYOUT_RULES_METAL_ARGUMENT_BUFFER_TIER_2, SLANG_LINE_DIRECTIVE_MODE_DEFAULT,
         SLANG_LINE_DIRECTIVE_MODE_GLSL, SLANG_LINE_DIRECTIVE_MODE_NONE,
         SLANG_LINE_DIRECTIVE_MODE_SOURCE_MAP, SLANG_LINE_DIRECTIVE_MODE_STANDARD,
         SLANG_MATRIX_LAYOUT_COLUMN_MAJOR, SLANG_MATRIX_LAYOUT_MODE_UNKNOWN,
         SLANG_MATRIX_LAYOUT_ROW_MAJOR, SLANG_METAL, SLANG_METAL_LIB, SLANG_METAL_LIB_ASM,
-        SLANG_OBJECT_CODE, SLANG_OK, SLANG_PROFILE_UNKNOWN, SLANG_PTX, SLANG_SHADER_HOST_CALLABLE,
-        SLANG_SHADER_LLVM_IR, SLANG_SHADER_SHARED_LIBRARY, SLANG_SPIRV, SLANG_SPIRV_ASM,
-        SLANG_STAGE_AMPLIFICATION, SLANG_STAGE_ANY_HIT, SLANG_STAGE_CALLABLE,
+        SLANG_OBJECT_CODE, SLANG_OK, SLANG_PARAMETER_CATEGORY_CALLABLE_PAYLOAD,
+        SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER, SLANG_PARAMETER_CATEGORY_COUNT,
+        SLANG_PARAMETER_CATEGORY_COUNT_V1, SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT,
+        SLANG_PARAMETER_CATEGORY_EXISTENTIAL_OBJECT_PARAM,
+        SLANG_PARAMETER_CATEGORY_EXISTENTIAL_TYPE_PARAM, SLANG_PARAMETER_CATEGORY_FRAGMENT_OUTPUT,
+        SLANG_PARAMETER_CATEGORY_GENERIC, SLANG_PARAMETER_CATEGORY_HIT_ATTRIBUTES,
+        SLANG_PARAMETER_CATEGORY_METAL_ARGUMENT_BUFFER_ELEMENT,
+        SLANG_PARAMETER_CATEGORY_METAL_ATTRIBUTE, SLANG_PARAMETER_CATEGORY_METAL_BUFFER,
+        SLANG_PARAMETER_CATEGORY_METAL_PAYLOAD, SLANG_PARAMETER_CATEGORY_METAL_SAMPLER,
+        SLANG_PARAMETER_CATEGORY_METAL_TEXTURE, SLANG_PARAMETER_CATEGORY_MIXED,
+        SLANG_PARAMETER_CATEGORY_NONE, SLANG_PARAMETER_CATEGORY_PUSH_CONSTANT_BUFFER,
+        SLANG_PARAMETER_CATEGORY_RAY_PAYLOAD, SLANG_PARAMETER_CATEGORY_REGISTER_SPACE,
+        SLANG_PARAMETER_CATEGORY_SAMPLER_STATE, SLANG_PARAMETER_CATEGORY_SHADER_RECORD,
+        SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE, SLANG_PARAMETER_CATEGORY_SPECIALIZATION_CONSTANT,
+        SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE, SLANG_PARAMETER_CATEGORY_SUBPASS,
+        SLANG_PARAMETER_CATEGORY_UNIFORM, SLANG_PARAMETER_CATEGORY_UNORDERED_ACCESS,
+        SLANG_PARAMETER_CATEGORY_VARYING_INPUT, SLANG_PARAMETER_CATEGORY_VARYING_OUTPUT,
+        SLANG_PARAMETER_CATEGORY_VERTEX_INPUT, SLANG_PROFILE_UNKNOWN, SLANG_PTX,
+        SLANG_RESOURCE_ACCESS_APPEND, SLANG_RESOURCE_ACCESS_CONSUME,
+        SLANG_RESOURCE_ACCESS_FEEDBACK, SLANG_RESOURCE_ACCESS_NONE,
+        SLANG_RESOURCE_ACCESS_RASTER_ORDERED, SLANG_RESOURCE_ACCESS_READ,
+        SLANG_RESOURCE_ACCESS_READ_WRITE, SLANG_RESOURCE_ACCESS_UNKNOWN,
+        SLANG_RESOURCE_ACCESS_WRITE, SLANG_RESOURCE_BASE_SHAPE_MASK, SLANG_RESOURCE_EXT_SHAPE_MASK,
+        SLANG_RESOURCE_NONE, SLANG_RESOURCE_UNKNOWN, SLANG_SCALAR_TYPE_BFLOAT16,
+        SLANG_SCALAR_TYPE_BOOL, SLANG_SCALAR_TYPE_FLOAT_E4M3, SLANG_SCALAR_TYPE_FLOAT_E5M2,
+        SLANG_SCALAR_TYPE_FLOAT16, SLANG_SCALAR_TYPE_FLOAT32, SLANG_SCALAR_TYPE_FLOAT64,
+        SLANG_SCALAR_TYPE_INT8, SLANG_SCALAR_TYPE_INT16, SLANG_SCALAR_TYPE_INT32,
+        SLANG_SCALAR_TYPE_INT64, SLANG_SCALAR_TYPE_INTPTR, SLANG_SCALAR_TYPE_NONE,
+        SLANG_SCALAR_TYPE_UINT8, SLANG_SCALAR_TYPE_UINT16, SLANG_SCALAR_TYPE_UINT32,
+        SLANG_SCALAR_TYPE_UINT64, SLANG_SCALAR_TYPE_UINTPTR, SLANG_SCALAR_TYPE_VOID,
+        SLANG_SHADER_HOST_CALLABLE, SLANG_SHADER_LLVM_IR, SLANG_SHADER_SHARED_LIBRARY, SLANG_SPIRV,
+        SLANG_SPIRV_ASM, SLANG_STAGE_AMPLIFICATION, SLANG_STAGE_ANY_HIT, SLANG_STAGE_CALLABLE,
         SLANG_STAGE_CLOSEST_HIT, SLANG_STAGE_COMPUTE, SLANG_STAGE_COUNT, SLANG_STAGE_DISPATCH,
         SLANG_STAGE_DOMAIN, SLANG_STAGE_FRAGMENT, SLANG_STAGE_GEOMETRY, SLANG_STAGE_HULL,
         SLANG_STAGE_INTERSECTION, SLANG_STAGE_MESH, SLANG_STAGE_MISS, SLANG_STAGE_NODE,
         SLANG_STAGE_NONE, SLANG_STAGE_PIXEL, SLANG_STAGE_RAY_GENERATION, SLANG_STAGE_VERTEX,
-        SLANG_TARGET_COUNT_OF, SLANG_TARGET_FLAG_DUMP_IR,
+        SLANG_STRUCTURED_BUFFER, SLANG_TARGET_COUNT_OF, SLANG_TARGET_FLAG_DUMP_IR,
         SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY, SLANG_TARGET_FLAG_GENERATE_WHOLE_PROGRAM,
         SLANG_TARGET_FLAG_PARAMETER_BLOCKS_USE_REGISTER_SPACES, SLANG_TARGET_NONE,
-        SLANG_TARGET_UNKNOWN, SLANG_WGSL, SLANG_WGSL_SPIRV, SLANG_WGSL_SPIRV_ASM,
+        SLANG_TARGET_UNKNOWN, SLANG_TEXTURE_1D, SLANG_TEXTURE_1D_ARRAY, SLANG_TEXTURE_2D,
+        SLANG_TEXTURE_2D_ARRAY, SLANG_TEXTURE_2D_MULTISAMPLE, SLANG_TEXTURE_2D_MULTISAMPLE_ARRAY,
+        SLANG_TEXTURE_3D, SLANG_TEXTURE_ARRAY_FLAG, SLANG_TEXTURE_BUFFER,
+        SLANG_TEXTURE_COMBINED_FLAG, SLANG_TEXTURE_CUBE, SLANG_TEXTURE_CUBE_ARRAY,
+        SLANG_TEXTURE_FEEDBACK_FLAG, SLANG_TEXTURE_MULTISAMPLE_FLAG, SLANG_TEXTURE_SHADOW_FLAG,
+        SLANG_TEXTURE_SUBPASS, SLANG_TEXTURE_SUBPASS_MULTISAMPLE, SLANG_TYPE_KIND_ARRAY,
+        SLANG_TYPE_KIND_CONSTANT_BUFFER, SLANG_TYPE_KIND_COUNT, SLANG_TYPE_KIND_DYNAMIC_RESOURCE,
+        SLANG_TYPE_KIND_ENUM, SLANG_TYPE_KIND_FEEDBACK, SLANG_TYPE_KIND_GENERIC_TYPE_PARAMETER,
+        SLANG_TYPE_KIND_INTERFACE, SLANG_TYPE_KIND_MATRIX, SLANG_TYPE_KIND_MESH_OUTPUT,
+        SLANG_TYPE_KIND_NONE, SLANG_TYPE_KIND_PARAMETER_BLOCK, SLANG_TYPE_KIND_POINTER,
+        SLANG_TYPE_KIND_RESOURCE, SLANG_TYPE_KIND_SAMPLER_STATE, SLANG_TYPE_KIND_SCALAR,
+        SLANG_TYPE_KIND_SHADER_STORAGE_BUFFER, SLANG_TYPE_KIND_SPECIALIZED, SLANG_TYPE_KIND_STRUCT,
+        SLANG_TYPE_KIND_TEXTURE_BUFFER, SLANG_TYPE_KIND_VECTOR, SLANG_UNBOUNDED_SIZE,
+        SLANG_UNKNOWN_SIZE, SLANG_WGSL, SLANG_WGSL_SPIRV, SLANG_WGSL_SPIRV_ASM,
     };
     pub use super::{
         CompilerOptionEntry, CompilerOptionName, CompilerOptionValue, CompilerOptionValueKind,
         EntryPoint, FileSystem, FileSystemDesc, GlobalSession, GlobalSessionDesc, IBlob,
         IComponentType, IEntryPoint, IGlobalSession, IModule, ISession, ISlangBlob,
         ISlangFileSystem, Module, PreprocessorMacroDesc, ProgramLayout, Session, SessionDesc,
-        SessionFlags, SlangCompileTarget, SlangCompileTargetIntegral, SlangFileSystemDesc,
-        SlangFloatingPointMode, SlangFloatingPointModeIntegral, SlangGlobalSessionDesc, SlangInt,
-        SlangInt32, SlangLineDirectiveMode, SlangLineDirectiveModeIntegral, SlangLoadFileFunc,
-        SlangMatrixLayoutMode, SlangMatrixLayoutModeIntegral, SlangPreprocessorMacroDesc,
-        SlangProfileID, SlangProfileIDIntegral, SlangResult, SlangSessionDesc, SlangStage,
-        SlangStageIntegral, SlangTargetDesc, SlangTargetFlags, SlangUInt, SlangUInt32, TargetDesc,
+        SessionFlags, SlangCompileRequest, SlangCompileTarget, SlangCompileTargetIntegral,
+        SlangFileSystemDesc, SlangFloatingPointMode, SlangFloatingPointModeIntegral,
+        SlangGlobalSessionDesc, SlangInt, SlangInt32, SlangLayoutRules, SlangLineDirectiveMode,
+        SlangLineDirectiveModeIntegral, SlangLoadFileFunc, SlangMatrixLayoutMode,
+        SlangMatrixLayoutModeIntegral, SlangParameterCategory, SlangPreprocessorMacroDesc,
+        SlangProfileID, SlangProfileIDIntegral, SlangProgramLayout, SlangReflection,
+        SlangReflectionEntryPoint, SlangReflectionParameter, SlangReflectionType,
+        SlangReflectionTypeLayout, SlangReflectionVariable, SlangReflectionVariableLayout,
+        SlangResourceAccess, SlangResourceShape, SlangResult, SlangScalarType, SlangSessionDesc,
+        SlangStage, SlangStageIntegral, SlangTargetDesc, SlangTargetFlags, SlangTypeKind,
+        SlangUInt, SlangUInt32, TargetDesc,
     };
     pub use super::{
         slang_abi_version as abi_version, slang_blob_destroy as blob_destroy,
@@ -456,9 +844,44 @@ pub mod slang {
         slang_module_get_file_path as module_get_file_path,
         slang_module_get_name as module_get_name,
         slang_program_layout_destroy as destroy_program_layout,
-        slang_program_layout_to_json as program_layout_to_json,
+        slang_program_layout_get_reflection as program_layout_get_reflection,
         slang_session_create_composite_component_type as session_create_composite_component_type,
         slang_session_destroy as destroy_session,
         slang_session_load_module_from_source as load_module_from_source,
+    };
+    pub use super::{
+        slang_reflection_entry_point_get_compute_thread_group_size,
+        slang_reflection_entry_point_get_name, slang_reflection_entry_point_get_parameter_by_index,
+        slang_reflection_entry_point_get_parameter_count,
+        slang_reflection_entry_point_get_result_var_layout, slang_reflection_entry_point_get_stage,
+        slang_reflection_entry_point_get_var_layout, slang_reflection_find_entry_point_by_name,
+        slang_reflection_find_type_by_name, slang_reflection_get_entry_point_by_index,
+        slang_reflection_get_entry_point_count, slang_reflection_get_global_params_type_layout,
+        slang_reflection_get_global_params_var_layout, slang_reflection_get_parameter_by_index,
+        slang_reflection_get_parameter_count, slang_reflection_get_type_layout,
+        slang_reflection_parameter_get_binding_index, slang_reflection_parameter_get_binding_space,
+        slang_reflection_to_json, slang_reflection_type_get_column_count,
+        slang_reflection_type_get_element_count, slang_reflection_type_get_element_type,
+        slang_reflection_type_get_field_by_index, slang_reflection_type_get_field_count,
+        slang_reflection_type_get_kind, slang_reflection_type_get_name,
+        slang_reflection_type_get_resource_access, slang_reflection_type_get_resource_result_type,
+        slang_reflection_type_get_resource_shape, slang_reflection_type_get_row_count,
+        slang_reflection_type_get_scalar_type,
+        slang_reflection_type_layout_get_container_var_layout,
+        slang_reflection_type_layout_get_element_stride,
+        slang_reflection_type_layout_get_element_type_layout,
+        slang_reflection_type_layout_get_element_var_layout,
+        slang_reflection_type_layout_get_field_by_index,
+        slang_reflection_type_layout_get_field_count, slang_reflection_type_layout_get_kind,
+        slang_reflection_type_layout_get_matrix_layout_mode,
+        slang_reflection_type_layout_get_parameter_category, slang_reflection_type_layout_get_size,
+        slang_reflection_type_layout_get_stride, slang_reflection_type_layout_get_type,
+        slang_reflection_variable_get_name, slang_reflection_variable_get_type,
+        slang_reflection_variable_layout_get_offset,
+        slang_reflection_variable_layout_get_semantic_index,
+        slang_reflection_variable_layout_get_semantic_name,
+        slang_reflection_variable_layout_get_space, slang_reflection_variable_layout_get_stage,
+        slang_reflection_variable_layout_get_type_layout,
+        slang_reflection_variable_layout_get_variable,
     };
 }

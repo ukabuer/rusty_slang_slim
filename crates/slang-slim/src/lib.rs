@@ -18,8 +18,9 @@ mod session;
 mod vfs;
 
 pub use component::{
-    Component, ComponentType, CompositeComponentType, EntryPoint, LinkedComponentType, Module,
-    ProgramLayout,
+    Component, ComponentType, CompositeComponentType, EntryPoint, EntryPointReflection,
+    LinkedComponentType, Module, ProgramLayout, TypeLayoutReflection, TypeReflection,
+    VariableLayoutReflection, VariableReflection,
 };
 pub use error::{Diagnostics, Error, Output, Result};
 pub use session::{
