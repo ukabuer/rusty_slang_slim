@@ -60,6 +60,9 @@ target_include_directories(
     slang-slim-c-api
     PUBLIC
         "${CMAKE_CURRENT_LIST_DIR}/include"
+    PRIVATE
+        "${SLANG_SLIM_SLANG_SOURCE_DIR}/source"
+        "${SLANG_SLIM_SLANG_SOURCE_DIR}/external/unordered_dense/include"
 )
 target_link_libraries(slang-slim-c-api PUBLIC slang)
 

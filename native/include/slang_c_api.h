@@ -502,7 +502,11 @@ SLANG_C_API SlangResult slang_file_system_create(
     ISlangFileSystem** out_file_system);
 SLANG_C_API void slang_file_system_destroy(ISlangFileSystem* file_system);
 
-/** The stable-ABI counterpart of Slang's slang_createBlob helper. */
+/**
+ * The stable-ABI counterpart of Slang's slang_createBlob helper.
+ * Unlike the public helper, this also creates a valid zero-byte blob so a
+ * virtual file system can represent an empty file.
+ */
 SLANG_C_API SlangResult slang_create_blob(
     const void* data,
     size_t size,

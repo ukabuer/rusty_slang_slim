@@ -1,5 +1,6 @@
 #include <slang-com-ptr.h>
 #include <slang.h>
+#include <core/slang-blob.h>
 
 #include "slang_c_api.h"
 
@@ -426,9 +427,12 @@ SLANG_C_API SlangResult slang_create_blob(
     if (!outBlob || (!data && size != 0))
         return SLANG_E_INVALID_ARG;
     *outBlob = nullptr;
-    static const uint8_t emptyByte = 0;
-    *outBlob = slang_createBlob(data ? data : &emptyByte, size);
-    return *outBlob ? SLANG_OK : SLANG_E_OUT_OF_MEMORY;
+    Slang::ComPtr<ISlangBlob> blob;
+    const SlangResult status = Slang::RawBlob::tryCreate(data, size, blob);
+    if (SLANG_FAILED(status))
+        return status;
+    *outBlob = blob.detach();
+    return SLANG_OK;
 }
 
 SLANG_C_API void slang_session_destroy(ISession* session)

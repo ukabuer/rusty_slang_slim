@@ -133,6 +133,17 @@ fn slang_c_api_is_callable_from_rust() {
         assert_eq!(slang_abi_version(), ABI_VERSION);
         assert_eq!(ABI_VERSION, SLANG_C_API_ABI_VERSION);
 
+        // The public Slang slang_createBlob helper rejects zero-byte buffers,
+        // but an ISlangFileSystem must be able to return an empty file.
+        let mut empty_blob = ptr::null_mut();
+        assert_eq!(
+            slang_create_blob(ptr::null(), 0, &mut empty_blob),
+            slang_slim_sys::SLANG_OK
+        );
+        assert!(!empty_blob.is_null());
+        assert_eq!(slang_blob_get_buffer_size(empty_blob), 0);
+        slang_blob_destroy(empty_blob);
+
         let global_desc = SlangGlobalSessionDesc {
             structure_size: size_of::<SlangGlobalSessionDesc>() as u32,
             api_version: 0,

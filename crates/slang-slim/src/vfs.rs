@@ -139,3 +139,52 @@ where
         Err(_) => sys::SLANG_FAIL,
     }
 }
+
+#[cfg(all(test, feature = "native-tests"))]
+mod tests {
+    use super::*;
+    use std::ffi::CString;
+
+    type Loader = fn(&str) -> std::result::Result<Vec<u8>, sys::SlangResult>;
+
+    fn invoke(loader: Loader, path: &CString) -> (sys::SlangResult, *mut sys::ISlangBlob) {
+        let state = CallbackState { filesystem: loader };
+        let user_data = (&state as *const CallbackState<Loader>)
+            .cast_mut()
+            .cast::<c_void>();
+        let mut blob = ptr::null_mut();
+        let status = unsafe { load_file_callback::<Loader>(user_data, path.as_ptr(), &mut blob) };
+        (status, blob)
+    }
+
+    #[test]
+    fn callback_accepts_empty_file() {
+        let path = CString::new("empty.hlsl").unwrap();
+        let (status, blob) = invoke(|_| Ok(Vec::new()), &path);
+        assert_eq!(status, sys::SLANG_OK);
+        assert!(!blob.is_null());
+        assert_eq!(unsafe { sys::slang_blob_get_buffer_size(blob) }, 0);
+        unsafe { sys::slang_blob_destroy(blob) };
+    }
+
+    #[test]
+    fn callback_preserves_loader_error() {
+        let path = CString::new("missing.hlsl").unwrap();
+        let (status, blob) = invoke(|_| Err(sys::SLANG_E_CANNOT_OPEN), &path);
+        assert_eq!(status, sys::SLANG_E_CANNOT_OPEN);
+        assert!(blob.is_null());
+    }
+
+    #[test]
+    fn callback_converts_panic_to_failure() {
+        let path = CString::new("panic.hlsl").unwrap();
+        let (status, blob) = invoke(
+            |_| -> std::result::Result<Vec<u8>, sys::SlangResult> {
+                panic!("intentional VFS callback panic")
+            },
+            &path,
+        );
+        assert_eq!(status, sys::SLANG_FAIL);
+        assert!(blob.is_null());
+    }
+}
