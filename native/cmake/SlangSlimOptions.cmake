@@ -11,13 +11,16 @@ function(slang_slim_configure_slang)
     set(SLANG_EMBED_CORE_MODULE_SOURCE ON CACHE BOOL "Embed Slang's core module source" FORCE)
     set(SLANG_STANDARD_MODULE_DEVELOP_BUILD OFF CACHE BOOL "Use release standard modules" FORCE)
 
-    # slang-slim accepts HLSL and uses Slang's native HLSL, SPIR-V and Metal
-    # emitters. It does not need DXC, glslang, LLVM, rendering APIs, tools, or
-    # the backward-compatibility proxy library.
-    set(SLANG_ENABLE_DXIL OFF CACHE BOOL "DXIL generation is outside slang-slim scope" FORCE)
+    # The release profile keeps Slang's core frontend, source emitters, direct
+    # SPIR-V emitter, layout, and reflection. It does not bundle optional
+    # downstream compilers, LLVM, rendering APIs, tools, or the
+    # backward-compatibility proxy library. The public ABI remains generic over
+    # Slang target/profile/stage values; these switches describe build
+    # dependencies, not a strict-HLSL allow-list.
+    set(SLANG_ENABLE_DXIL OFF CACHE BOOL "DXIL generation is not bundled" FORCE)
     set(SLANG_ENABLE_GFX OFF CACHE BOOL "Rendering APIs are outside slang-slim scope" FORCE)
     set(SLANG_ENABLE_SLANG_RHI OFF CACHE BOOL "slang-rhi is outside slang-slim scope" FORCE)
-    set(SLANG_ENABLE_SLANG_GLSLANG OFF CACHE BOOL "GLSL input is outside slang-slim scope" FORCE)
+    set(SLANG_ENABLE_SLANG_GLSLANG OFF CACHE BOOL "The glslang downstream module is not bundled" FORCE)
     set(SLANG_ENABLE_SLANGC OFF CACHE BOOL "The standalone compiler is not distributed" FORCE)
     set(SLANG_ENABLE_SLANGD OFF CACHE BOOL "The language server is not distributed" FORCE)
     set(SLANG_ENABLE_SLANGI OFF CACHE BOOL "The interpreter is not distributed" FORCE)

@@ -2,11 +2,14 @@
 
 ## Goals
 
-`slang-slim` embeds a deliberately narrow subset of the Slang shader compiler behind a stable project-owned C ABI and raw Rust FFI declarations.
+`slang-slim` embeds a capability-trimmed build of the Slang shader compiler
+behind a stable project-owned C ABI and raw Rust FFI declarations. The build
+removes optional dependencies and tools; it does not impose a strict-HLSL
+parser or a fixed target/stage allow-list on the bridge.
 
 Consumer builds must not require CMake, a C++ compiler, bindgen, the Android NDK, or the Slang source tree. Prebuilt native artifacts are downloaded from GitHub Releases and verified before linking.
 
-## Supported hosts and outputs
+## v0.1 distribution and validation matrix
 
 | Compiler host | Rust target | Outputs |
 | --- | --- | --- |
@@ -15,15 +18,27 @@ Consumer builds must not require CMake, a C++ compiler, bindgen, the Android NDK
 
 Android uses `minSdk` 29. Android x86_64 emulator support is outside v0.1.
 
-SPIR-V 1.3 output is validated against the Vulkan 1.1 environment.
+SPIR-V 1.3 output is validated against the Vulkan 1.1 environment. These rows
+describe the artifacts published and exercised by v0.1. They are not a claim
+that the native compiler rejects every other Slang target or profile; see
+[the capability audit](capability-audit.md).
 
 ## Source and program model
 
-- Input language is strict HLSL.
-- Supported stages are vertex, fragment, and compute.
+- `load_module_from_source` delegates to Slang's
+  `loadModuleFromSource`. Slang parses the source as its `Slang` language by
+  default and selects GLSL compatibility for an apparent `.glsl` path; the
+  current bridge has no explicit source-language selector.
+- The v0.1 examples and compatibility promise use HLSL-compatible source, but
+  the bridge does not enforce a strict-HLSL input policy.
+- The raw ABI and safe core wrapper forward all Slang stage values. Vertex,
+  fragment, and compute are the only stages covered by the v0.1 tests and
+  release promise.
 - A translation unit may contain multiple explicitly named entry points.
 - One compilation request may compose multiple entry points.
-- Windows may generate all three targets from one shared frontend pass when target-specific preprocessing is not required.
+- Target formats and profiles are supplied through Slang-shaped descriptors;
+  the current Windows example generates all three v0.1 targets from one shared
+  component graph when target-specific preprocessing is not required.
 - Output code is addressed by `(target, entry_point)`.
 
 ## Reflection

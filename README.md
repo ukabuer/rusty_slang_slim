@@ -1,8 +1,9 @@
 # slang-slim
 
-`slang-slim` is a focused, prebuilt Slang integration for Rust applications that compile HLSL at runtime.
+`slang-slim` is a capability-trimmed, prebuilt Slang integration for Rust
+applications that compile shader code at runtime.
 
-The initial release is intentionally limited to:
+The initial release has the following tested and distributed matrix:
 
 - Windows x86_64 MSVC: HLSL Shader Model 6.0 source, SPIR-V 1.3, and MSL 2.3 source.
 - Android ARM64 with `minSdk` 29: SPIR-V 1.3 only.
@@ -10,6 +11,13 @@ The initial release is intentionally limited to:
 - Multiple entry points in one HLSL translation unit.
 - Target-specific Slang reflection (typed views plus JSON) and virtual
   file-system support.
+
+This is a release and validation profile, not a hard compiler allow-list. The
+raw descriptors and safe core wrapper forward Slang target/profile/stage values
+without restricting them to the entries above. The pinned native build still
+omits optional downstream compilers and several upstream API families. See
+[the capability audit](docs/capability-audit.md) for the actual boundary
+between Slang, the native build, and the Rust bridge.
 
 Consumers will download prebuilt native archives from GitHub Releases. Building Slang from source is a maintainer workflow, not part of a consumer `cargo build`.
 
