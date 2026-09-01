@@ -61,6 +61,176 @@ function Get-RelativePackagePath {
     return $fullPath.Substring($rootPrefix.Length).Replace('\', '/')
 }
 
+function Resolve-WindowsArchiver {
+    $command = Get-Command lib.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -ne $command) {
+        return $command.Path
+    }
+
+    $candidatePaths = @()
+    if (-not [string]::IsNullOrWhiteSpace($env:VCToolsInstallDir)) {
+        $candidatePaths += Join-Path $env:VCToolsInstallDir "bin/Hostx64/x64/lib.exe"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:VSINSTALLDIR)) {
+        $candidatePaths += Join-Path $env:VSINSTALLDIR "VC/Tools/MSVC"
+    }
+
+    foreach ($candidate in $candidatePaths) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return [IO.Path]::GetFullPath($candidate)
+        }
+        if (Test-Path -LiteralPath $candidate -PathType Container) {
+            $tool = Get-ChildItem -LiteralPath $candidate -Recurse -File -Filter lib.exe |
+                Where-Object { $_.FullName -match '[\\/]bin[\\/]Hostx64[\\/]x64[\\/]lib\.exe$' } |
+                Sort-Object FullName -Descending |
+                Select-Object -First 1
+            if ($null -ne $tool) {
+                return $tool.FullName
+            }
+        }
+    }
+
+    $vswhere = $null
+    if (-not [string]::IsNullOrWhiteSpace(${env:ProgramFiles(x86)})) {
+        $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio/Installer/vswhere.exe"
+    }
+    if ($null -ne $vswhere -and (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
+        $installationPath = (& $vswhere -latest -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath 2>$null | Select-Object -First 1)
+        if (-not [string]::IsNullOrWhiteSpace($installationPath)) {
+            $tool = Get-ChildItem -LiteralPath (Join-Path $installationPath "VC/Tools/MSVC") `
+                -Recurse -File -Filter lib.exe |
+                Where-Object { $_.FullName -match '[\\/]bin[\\/]Hostx64[\\/]x64[\\/]lib\.exe$' } |
+                Sort-Object FullName -Descending |
+                Select-Object -First 1
+            if ($null -ne $tool) {
+                return $tool.FullName
+            }
+        }
+    }
+
+    throw "MSVC lib.exe was not found; run this script from a VS developer shell or install the MSVC x64 toolset"
+}
+
+function Resolve-AndroidArchiver {
+    $command = Get-Command llvm-ar.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -ne $command) {
+        return $command.Path
+    }
+
+    $ndkRoot = $env:ANDROID_NDK_HOME
+    if ([string]::IsNullOrWhiteSpace($ndkRoot)) {
+        $ndkRoot = $env:ANDROID_NDK_ROOT
+    }
+    if ([string]::IsNullOrWhiteSpace($ndkRoot)) {
+        throw "ANDROID_NDK_HOME is required to locate the Android llvm-ar archiver"
+    }
+
+    $prebuiltNames = @("windows-x86_64", "linux-x86_64", "darwin-x86_64", "darwin-arm64")
+    foreach ($prebuiltName in $prebuiltNames) {
+        $candidate = Join-Path $ndkRoot "toolchains/llvm/prebuilt/$prebuiltName/bin/llvm-ar.exe"
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return [IO.Path]::GetFullPath($candidate)
+        }
+        $candidate = Join-Path $ndkRoot "toolchains/llvm/prebuilt/$prebuiltName/bin/llvm-ar"
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return [IO.Path]::GetFullPath($candidate)
+        }
+    }
+
+    throw "Android llvm-ar was not found below $ndkRoot"
+}
+
+function Merge-StaticLibraries {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("x86_64-pc-windows-msvc", "aarch64-linux-android")]
+        [string]$Target,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$InputPaths,
+
+        [Parameter(Mandatory = $true)]
+        [string]$OutputPath
+    )
+
+    $outputDirectory = Split-Path -Parent $OutputPath
+    [IO.Directory]::CreateDirectory($outputDirectory) | Out-Null
+    if ([IO.File]::Exists($OutputPath)) {
+        [IO.File]::Delete($OutputPath)
+    }
+
+    if ($Target -eq "x86_64-pc-windows-msvc") {
+        $archiver = Resolve-WindowsArchiver
+        $arguments = @("/nologo", "/OUT:$OutputPath") + $InputPaths
+        & $archiver @arguments
+    }
+    else {
+        $archiver = Resolve-AndroidArchiver
+        # L asks llvm-ar to add the contents of each input archive rather than
+        # nesting the archives as members. D makes the archive metadata
+        # deterministic; it is also llvm-ar's default but is explicit here.
+        & $archiver qcsDL $OutputPath @InputPaths
+    }
+
+    if ($LASTEXITCODE -ne 0 -or -not [IO.File]::Exists($OutputPath)) {
+        throw "Failed to merge static libraries into $OutputPath"
+    }
+
+    if ($Target -eq "x86_64-pc-windows-msvc") {
+        # MSVC lib.exe stamps each COFF archive member with the current time.
+        # Normalize those headers so rebuilding the same inputs produces the
+        # same release SHA-256 on local and CI machines.
+        Normalize-CoffArchiveTimestamps -Path $OutputPath
+    }
+    Write-Host "Merged $($InputPaths.Count) static libraries into $OutputPath"
+}
+
+function Normalize-CoffArchiveTimestamps {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $bytes = [IO.File]::ReadAllBytes($Path)
+    if ($bytes.Length -lt 8 -or
+        [Text.Encoding]::ASCII.GetString($bytes, 0, 8) -ne "!<arch>`n") {
+        throw "Unsupported COFF archive format: $Path"
+    }
+
+    $offset = 8
+    while ($offset -lt $bytes.Length) {
+        if ($offset + 60 -gt $bytes.Length -or
+            $bytes[$offset + 58] -ne 0x60 -or
+            $bytes[$offset + 59] -ne 0x0a) {
+            throw "Malformed COFF archive member header at byte $offset in $Path"
+        }
+
+        for ($index = 0; $index -lt 12; $index++) {
+            $bytes[$offset + 16 + $index] = [byte][char]'0'
+        }
+
+        $sizeText = [Text.Encoding]::ASCII.GetString($bytes, $offset + 48, 10).Trim()
+        try {
+            $memberSize = [int64]::Parse(
+                $sizeText,
+                [Globalization.NumberStyles]::Integer,
+                [Globalization.CultureInfo]::InvariantCulture)
+        }
+        catch {
+            throw "Malformed COFF archive member size '$sizeText' at byte $offset in $Path"
+        }
+        $memberEnd = $offset + 60 + $memberSize
+        if ($memberSize -lt 0 -or $memberEnd -gt $bytes.Length) {
+            throw "COFF archive member at byte $offset extends past the end of $Path"
+        }
+        $offset = $memberEnd + ($memberSize % 2)
+    }
+
+    [IO.File]::WriteAllBytes($Path, $bytes)
+}
+
 function New-DeterministicZip {
     param(
         [Parameter(Mandatory = $true)]
@@ -140,7 +310,7 @@ $targetConfig = switch ($Target) {
         [ordered]@{
             build_directory = "build/native/windows-x64"
             build_preset = "windows-x64-release"
-            libraries = @(
+            input_libraries = @(
                 [ordered]@{ name = "slang-slim-c-api"; source = "Release/slang-slim-c-api.lib"; file = "slang-slim-c-api.lib" }
                 [ordered]@{ name = "slang-compiler"; source = "slang/Release/lib/slang-compiler.lib"; file = "slang-compiler.lib" }
                 [ordered]@{ name = "compiler-core"; source = "slang/Release/lib/compiler-core.lib"; file = "compiler-core.lib" }
@@ -149,6 +319,7 @@ $targetConfig = switch ($Target) {
                 [ordered]@{ name = "lz4"; source = "slang/external/lz4/build/cmake/Release/lz4.lib"; file = "lz4.lib" }
                 [ordered]@{ name = "cmark-gfm"; source = "slang/external/cmark/src/Release/cmark-gfm.lib"; file = "cmark-gfm.lib" }
             )
+            output_library = [ordered]@{ name = "slang-slim"; file = "slang-slim.lib" }
             runtime_libraries = @()
             system_libraries = @(
                 "kernel32",
@@ -169,7 +340,7 @@ $targetConfig = switch ($Target) {
         [ordered]@{
             build_directory = "build/native/android-arm64"
             build_preset = "android-arm64-release"
-            libraries = @(
+            input_libraries = @(
                 [ordered]@{ name = "slang-slim-c-api"; source = "Release/libslang-slim-c-api.a"; file = "libslang-slim-c-api.a" }
                 [ordered]@{ name = "slang-compiler"; source = "slang/Release/lib/libslang-compiler.a"; file = "libslang-compiler.a" }
                 [ordered]@{ name = "compiler-core"; source = "slang/Release/lib/libcompiler-core.a"; file = "libcompiler-core.a" }
@@ -178,6 +349,7 @@ $targetConfig = switch ($Target) {
                 [ordered]@{ name = "lz4"; source = "slang/external/lz4/build/cmake/Release/liblz4.a"; file = "liblz4.a" }
                 [ordered]@{ name = "cmark-gfm"; source = "slang/external/cmark/src/Release/libcmark-gfm.a"; file = "libcmark-gfm.a" }
             )
+            output_library = [ordered]@{ name = "slang-slim"; file = "libslang-slim.a" }
             runtime_libraries = @("c++_static")
             system_libraries = @("dl", "atomic", "m")
             link_arguments = @("-pthread")
@@ -191,7 +363,7 @@ if (-not [IO.File]::Exists($headerPath)) {
     throw "Missing public header: $headerPath"
 }
 
-foreach ($library in $targetConfig.libraries) {
+foreach ($library in $targetConfig.input_libraries) {
     $sourcePath = Join-Path $buildRoot $library.source
     if (-not [IO.File]::Exists($sourcePath)) {
         throw "Missing $sourcePath; build it with: cmake --build --preset $($targetConfig.build_preset)"
@@ -217,16 +389,17 @@ try {
 
     Copy-Item -LiteralPath $headerPath -Destination (Join-Path $includeDirectory "slang_c_api.h")
 
-    $manifestLibraries = @()
-    foreach ($library in $targetConfig.libraries) {
-        $sourcePath = Join-Path $buildRoot $library.source
-        $destinationPath = Join-Path $libraryDirectory $library.file
-        Copy-Item -LiteralPath $sourcePath -Destination $destinationPath
-        $manifestLibraries += [ordered]@{
-            name = $library.name
-            path = "lib/$($library.file)"
+    $inputPaths = @(
+        $targetConfig.input_libraries | ForEach-Object {
+            Join-Path $buildRoot $_.source
         }
-    }
+    )
+    $mergedLibraryPath = Join-Path $libraryDirectory $targetConfig.output_library.file
+    Merge-StaticLibraries -Target $Target -InputPaths $inputPaths -OutputPath $mergedLibraryPath
+    $manifestLibraries = @([ordered]@{
+        name = $targetConfig.output_library.name
+        path = "lib/$($targetConfig.output_library.file)"
+    })
 
     $fileManifest = @()
     $payloadFiles = Get-ChildItem -LiteralPath $stagingRoot -Recurse -File |
@@ -247,7 +420,10 @@ try {
         version = $Version
         abi_version = 1
         target = $Target
-        source_commit = Get-GitValue -WorkingDirectory $repositoryRoot -Arguments @("rev-parse", "HEAD")
+        # Keep the package hash independent of the root repository commit. The
+        # generated manifest is indexed by its SHA-256 in native-artifacts.json;
+        # embedding HEAD here would make updating that index change HEAD and
+        # therefore invalidate the package hash in a release-preparation loop.
         slang_commit = Get-GitValue -WorkingDirectory $slangSource -Arguments @("rev-parse", "HEAD")
         link = [ordered]@{
             kind = "static"

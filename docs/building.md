@@ -99,6 +99,9 @@ Assets and their sibling SHA-256 files are written under `build/packages` by
 default. The ZIP manifest is the contract consumed by the
 `slang-slim-sys` download/link step. Keep `-Version` synchronized with the
 crate version; the current checked-in index contains the two `0.1.0` assets.
+The manifest records the pinned Slang commit and omits the root repository
+`HEAD`, so writing the generated hash into `native-artifacts.json` does not
+change the archive hash.
 
 ## Exercise the Rust linker locally
 
@@ -113,8 +116,8 @@ Remove-Item Env:SLANG_SLIM_NATIVE_ARCHIVE
 ```
 
 The build script verifies the sibling `.zip.sha256`, stores the archive and
-validated extraction in a persistent Cargo cache, and links the libraries in
-manifest order. `SLANG_SLIM_NATIVE_DIR` can instead point at an already
+validated extraction in a persistent Cargo cache, and links the single merged
+library listed in the manifest. `SLANG_SLIM_NATIVE_DIR` can instead point at an already
 extracted package. `SLANG_SLIM_CACHE_DIR` overrides the cache location, and
 `SLANG_SLIM_RELEASE_BASE_URL` selects a GitHub-compatible mirror.
 
@@ -170,5 +173,21 @@ network fallback; provide a local archive or a populated cache in those modes.
 The first Windows release supports the dynamic MSVC CRT only. A Cargo build
 using `-C target-feature=+crt-static` is rejected until a matching static-CRT
 asset is published.
+
+## Continuous integration and releases
+
+The repository workflow at [`.github/workflows/native.yml`](../.github/workflows/native.yml)
+is the reproducible maintainer path. It checks formatting and the workspace,
+verifies the Slang submodule revision, installs the pinned Android NDK
+`27.3.13750724`, builds both Release native configurations, runs the Windows
+ABI smoke executable, validates the Android ARM64 ELF link result, compiles the
+Rust native tests, checks archive size budgets, and uploads the packaged assets.
+
+Tags in the form `v<crate-version>` additionally publish the two archives and
+their SHA-256 sidecars as a GitHub Release. The checked-in
+`crates/slang-slim-sys/native-artifacts.json` must be updated with those hashes
+before tagging; `scripts/update-native-artifacts.ps1` can generate the entries
+from `build/packages`, and the release job verifies the index and refuses to
+publish a mismatch.
 
 All generated files stay below `build` and are ignored by Git.

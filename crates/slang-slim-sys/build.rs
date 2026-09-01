@@ -382,9 +382,9 @@ fn expected_archive_hash(
     if let Some(value) = env::var_os(ENV_NATIVE_SHA256) {
         return normalize_sha256(&value.to_string_lossy());
     }
-    if let Some(artifact) = release {
-        return normalize_sha256(&artifact.sha256);
-    }
+    // An explicit local archive is a development/release-pipeline override;
+    // its sibling checksum must be authoritative even when the same crate
+    // version already has an entry in the checked-in release index.
     if let Some(archive) = local_archive {
         let checksum_path = appended_extension(archive, ".sha256");
         println!("cargo::rerun-if-changed={}", checksum_path.display());
@@ -399,6 +399,9 @@ fn expected_archive_hash(
             .next()
             .ok_or_else(|| format!("{} is empty", checksum_path.display()))?;
         return normalize_sha256(first_field);
+    }
+    if let Some(artifact) = release {
+        return normalize_sha256(&artifact.sha256);
     }
     Err("no native archive checksum is available".into())
 }

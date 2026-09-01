@@ -158,8 +158,10 @@ context. Successful operations preserve the original non-negative
 result bytes.
 
 The native artifact shape is fixed by `scripts/package-native.ps1`: one
-deterministic ZIP contains the C ABI header, the facade archive, and the
-audited Slang static dependencies, plus a manifest and sibling SHA-256 file.
+deterministic ZIP contains the C ABI header, one merged platform archive, and a
+manifest plus sibling SHA-256 file. The merge consumes the facade and audited
+Slang dependency archives produced by the Release build; consumers do not need
+to know that internal archive layout.
 
 ## Dependency policy
 
@@ -178,14 +180,14 @@ are published under the `v0.1.0` GitHub Release path when that release is cut.
 Each native asset is named
 `slang-slim-native-v{version}-{rust-target}.zip`. It contains the public C
 header, the non-LTO static facade and its audited static dependencies, and a
-`manifest.json` that fixes library order, platform runtime/system libraries,
-file sizes, and per-file SHA-256 hashes. A sibling `.zip.sha256` file records
+`manifest.json` that fixes the merged library path, platform runtime/system
+libraries, file sizes, and per-file SHA-256 hashes. A sibling `.zip.sha256` file records
 the checksum copied into the published Rust crate's artifact index.
 
-The dependencies remain separate archives inside the ZIP. This preserves the
-normal linker's selective object extraction and avoids rewriting upstream
-archives; consumers still see one downloadable asset. LTO archives are not
-published.
+The dependencies are flattened into the merged archive before packaging. This
+keeps one downloadable/linkable library for consumers; object-level extraction
+still happens from the merged COFF/AR members at final link time. LTO archives
+are not published.
 
 Source builds are a maintainer and CI workflow only.
 

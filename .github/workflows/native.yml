@@ -1,0 +1,296 @@
+name: native-ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  SLANG_SLIM_NDK_VERSION: 27.3.13750724
+
+jobs:
+  rust-check:
+    name: Rust checks
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.85.0
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check workspace without native assets
+        run: cargo check --workspace --all-targets
+
+  native-windows:
+    name: Windows x64 native build
+    runs-on: windows-2022
+    steps:
+      - name: Check out pinned Slang submodule
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify Slang revision
+        shell: pwsh
+        run: ./scripts/verify-slang-submodule.ps1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.85.0
+
+      - name: Resolve crate version
+        shell: pwsh
+        run: |
+          $manifest = Get-Content -LiteralPath "crates/slang-slim-sys/Cargo.toml" -Raw
+          $match = [regex]::Match($manifest, '(?m)^version\s*=\s*"([^"]+)"')
+          if (-not $match.Success) {
+              throw "Could not determine slang-slim-sys version"
+          }
+          $version = $match.Groups[1].Value
+          if ($env:GITHUB_REF_TYPE -eq "tag") {
+              if ($env:GITHUB_REF_NAME -notmatch '^v([0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?)$') {
+                  throw "Release tags must use the v<semver> form"
+              }
+              if ($Matches[1] -ne $version) {
+                  throw "Git tag $env:GITHUB_REF_NAME does not match crate version $version"
+              }
+          }
+          "SLANG_SLIM_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Configure Windows native build
+        working-directory: native
+        shell: pwsh
+        run: cmake --preset windows-x64 --fresh
+
+      - name: Build Windows ABI smoke binary
+        working-directory: native
+        shell: pwsh
+        run: cmake --build --preset windows-x64-abi --parallel 2
+
+      - name: Run Windows native smoke test
+        shell: pwsh
+        run: ./scripts/native-smoke.ps1 -Target x86_64-pc-windows-msvc
+
+      - name: Build Windows release libraries
+        working-directory: native
+        shell: pwsh
+        run: cmake --build --preset windows-x64-release --parallel 2
+
+      - name: Package Windows release asset
+        shell: pwsh
+        run: |
+          ./scripts/package-native.ps1 `
+            -Target x86_64-pc-windows-msvc `
+            -Version $env:SLANG_SLIM_VERSION `
+            -OutputDirectory build/packages
+
+      - name: Check Windows package size and manifest
+        shell: pwsh
+        run: |
+          ./scripts/check-native-size.ps1 `
+            -Target x86_64-pc-windows-msvc `
+            -PackagePath "build/packages/slang-slim-native-v$env:SLANG_SLIM_VERSION-x86_64-pc-windows-msvc.zip"
+
+      - name: Run Rust native smoke tests through packaged archive
+        shell: pwsh
+        run: |
+          $archive = (Resolve-Path "build/packages/slang-slim-native-v$env:SLANG_SLIM_VERSION-x86_64-pc-windows-msvc.zip").Path
+          $env:SLANG_SLIM_NATIVE_ARCHIVE = $archive
+          $env:SLANG_SLIM_CACHE_DIR = Join-Path (Get-Location) "build/ci-native-cache/windows"
+          $env:SLANG_SLIM_DISABLE_DOWNLOAD = "1"
+          cargo test --workspace --features native-tests -- --nocapture
+          cargo build -p slang-slim --features native-tests --example multi_target_compile
+
+      - name: Upload Windows release asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-package-windows
+          path: |
+            build/packages/*x86_64-pc-windows-msvc.zip
+            build/packages/*x86_64-pc-windows-msvc.zip.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  native-android:
+    name: Android ARM64 native build
+    runs-on: windows-2022
+    steps:
+      - name: Check out pinned Slang submodule
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify Slang revision
+        shell: pwsh
+        run: ./scripts/verify-slang-submodule.ps1
+
+      - name: Install Rust and Android target
+        uses: dtolnay/rust-toolchain@1.85.0
+        with:
+          targets: aarch64-linux-android
+
+      - name: Set up Android SDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK command-line tools
+        uses: android-actions/setup-android@v4
+
+      - name: Install pinned Android NDK and Ninja
+        shell: pwsh
+        run: |
+          sdkmanager --install "ndk;$env:SLANG_SLIM_NDK_VERSION"
+          if (-not (Get-Command ninja.exe -ErrorAction SilentlyContinue)) {
+              choco install ninja --yes --no-progress
+          }
+          $sdkRoot = $env:ANDROID_HOME
+          if ([string]::IsNullOrWhiteSpace($sdkRoot)) {
+              $sdkRoot = $env:ANDROID_SDK_ROOT
+          }
+          if ([string]::IsNullOrWhiteSpace($sdkRoot)) {
+              throw "Android SDK root was not provided by setup-android"
+          }
+          $ndk = Join-Path $sdkRoot "ndk/$env:SLANG_SLIM_NDK_VERSION"
+          if (-not (Test-Path -LiteralPath $ndk -PathType Container)) {
+              throw "Pinned Android NDK was not installed at $ndk"
+          }
+          "ANDROID_NDK_HOME=$ndk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Resolve crate version
+        shell: pwsh
+        run: |
+          $manifest = Get-Content -LiteralPath "crates/slang-slim-sys/Cargo.toml" -Raw
+          $match = [regex]::Match($manifest, '(?m)^version\s*=\s*"([^"]+)"')
+          if (-not $match.Success) {
+              throw "Could not determine slang-slim-sys version"
+          }
+          $version = $match.Groups[1].Value
+          if ($env:GITHUB_REF_TYPE -eq "tag") {
+              if ($env:GITHUB_REF_NAME -notmatch '^v([0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?)$') {
+                  throw "Release tags must use the v<semver> form"
+              }
+              if ($Matches[1] -ne $version) {
+                  throw "Git tag $env:GITHUB_REF_NAME does not match crate version $version"
+              }
+          }
+          "SLANG_SLIM_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Bootstrap Android host generators
+        shell: pwsh
+        run: ./scripts/bootstrap-android.ps1 -AndroidNdkHome $env:ANDROID_NDK_HOME
+
+      - name: Build Android release libraries
+        working-directory: native
+        shell: pwsh
+        run: cmake --build --preset android-arm64-release --parallel 2
+
+      - name: Build Android ABI smoke binary
+        working-directory: native
+        shell: pwsh
+        run: cmake --build --preset android-arm64-abi --parallel 2
+
+      - name: Run Android native link smoke test
+        shell: pwsh
+        run: ./scripts/native-smoke.ps1 -Target aarch64-linux-android
+
+      - name: Package Android release asset
+        shell: pwsh
+        run: |
+          ./scripts/package-native.ps1 `
+            -Target aarch64-linux-android `
+            -Version $env:SLANG_SLIM_VERSION `
+            -OutputDirectory build/packages
+
+      - name: Check Android package size and manifest
+        shell: pwsh
+        run: |
+          ./scripts/check-native-size.ps1 `
+            -Target aarch64-linux-android `
+            -PackagePath "build/packages/slang-slim-native-v$env:SLANG_SLIM_VERSION-aarch64-linux-android.zip"
+
+      - name: Configure Android Rust linker
+        shell: pwsh
+        run: |
+          $toolchain = Join-Path $env:ANDROID_NDK_HOME "toolchains/llvm/prebuilt/windows-x86_64/bin"
+          $clang = Join-Path $toolchain "aarch64-linux-android29-clang.cmd"
+          if (-not (Test-Path -LiteralPath $clang -PathType Leaf)) {
+              throw "Android clang driver was not found at $clang"
+          }
+          "CC_aarch64_linux_android=$clang" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CXX_aarch64_linux_android=$clang" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$clang" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Compile Rust Android native smoke tests
+        shell: pwsh
+        run: |
+          $archive = (Resolve-Path "build/packages/slang-slim-native-v$env:SLANG_SLIM_VERSION-aarch64-linux-android.zip").Path
+          $env:SLANG_SLIM_NATIVE_ARCHIVE = $archive
+          $env:SLANG_SLIM_CACHE_DIR = Join-Path (Get-Location) "build/ci-native-cache/android"
+          $env:SLANG_SLIM_DISABLE_DOWNLOAD = "1"
+          cargo test --workspace --target aarch64-linux-android --features native-tests --no-run
+          cargo build -p slang-slim --target aarch64-linux-android --features native-tests --example multi_target_compile
+
+      - name: Upload Android release asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-package-android
+          path: |
+            build/packages/*aarch64-linux-android.zip
+            build/packages/*aarch64-linux-android.zip.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish GitHub Release assets
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - rust-check
+      - native-windows
+      - native-android
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release metadata
+        uses: actions/checkout@v4
+
+      - name: Download native packages
+        uses: actions/download-artifact@v4
+        with:
+          path: build/packages
+          merge-multiple: true
+
+      - name: Verify release index and checksums
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          ./scripts/verify-native-release.ps1 -Version $version -PackageDirectory build/packages
+
+      - name: Publish native packages
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/packages/*.zip
+            build/packages/*.zip.sha256
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

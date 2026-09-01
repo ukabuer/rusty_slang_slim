@@ -67,12 +67,13 @@ HLSL, SPIR-V, Metal, and reflection.
 
 ## Size and dependency audit
 
-With Android Release `-g0` (the NDK otherwise injects `-g`), the static archive
-set required by the probe is about 63.45 MiB uncompressed and 16.8 MiB in a
-ZIP. The main `libslang-compiler.a` is 59.28 MiB; the archive is not standalone
-and needs `compiler-core`, `core`, miniz, LZ4, and cmark at final link time.
-The equivalent Windows archive set is about 116.98 MiB uncompressed and
-26.2 MiB in a ZIP.
+With Android Release `-g0` (the NDK otherwise injects `-g`), the seven input
+archives required by the probe total about 63.45 MiB uncompressed. Packaging
+merges them into one `libslang-slim.a`, which is about 63.53 MiB in the current
+build and 16.8 MiB in a ZIP. The main `libslang-compiler.a` is 59.28 MiB; it
+is not standalone and still needs `compiler-core`, `core`, miniz, LZ4, and cmark
+as merge inputs. The equivalent Windows input set is about 116.98 MiB
+uncompressed; the merged release archive is about 26.2 MiB.
 
 The linked Android probe is 30.61 MiB before stripping and about 26 MiB after
 `llvm-strip --strip-all`. Its only ELF needed libraries are `libc.so`,
