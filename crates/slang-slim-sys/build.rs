@@ -14,6 +14,7 @@ const INDEX_JSON: &str = include_str!("native-artifacts.json");
 const MANIFEST_SCHEMA_VERSION: u32 = 1;
 const ABI_VERSION: u32 = 1;
 const SUPPORTED_TARGETS: [&str; 2] = ["x86_64-pc-windows-msvc", "aarch64-linux-android"];
+const MERGED_LIBRARY_NAME: &str = "slang-slim";
 
 const ENV_NATIVE_DIR: &str = "SLANG_SLIM_NATIVE_DIR";
 const ENV_NATIVE_BUILD_DIR: &str = "SLANG_SLIM_NATIVE_BUILD_DIR";
@@ -82,6 +83,8 @@ struct LocalLibrary {
 }
 
 struct LocalNativeLayout {
+    // Source builds expose the seven CMake archives directly. Release ZIPs
+    // flatten these inputs into the one `MERGED_LIBRARY_NAME` archive below.
     libraries: &'static [LocalLibrary],
     runtime_libraries: &'static [&'static str],
     system_libraries: &'static [&'static str],
@@ -656,6 +659,23 @@ fn validate_native_root(
         return Err(format!("unsupported native link kind {}", manifest.link.kind).into());
     }
 
+    let expected_library_path = merged_library_path(expected_target)?;
+    if manifest.link.libraries.len() != 1 {
+        return Err(format!(
+            "native package must expose exactly one merged library named {MERGED_LIBRARY_NAME}; found {}",
+            manifest.link.libraries.len()
+        )
+        .into());
+    }
+    let merged_library = &manifest.link.libraries[0];
+    if merged_library.name != MERGED_LIBRARY_NAME || merged_library.path != expected_library_path {
+        return Err(format!(
+            "native package must expose {MERGED_LIBRARY_NAME} at {expected_library_path}; found {} at {}",
+            merged_library.name, merged_library.path
+        )
+        .into());
+    }
+
     let search_relative = safe_relative_path(&manifest.link.search_path)?;
     let mut recorded_paths = HashSet::new();
     for file in &manifest.files {
@@ -703,6 +723,14 @@ fn validate_native_root(
         validate_single_line("link argument", argument)?;
     }
     Ok(manifest)
+}
+
+fn merged_library_path(target: &str) -> BuildResult<&'static str> {
+    match target {
+        "x86_64-pc-windows-msvc" => Ok("lib/slang-slim.lib"),
+        "aarch64-linux-android" => Ok("lib/libslang-slim.a"),
+        _ => Err(format!("unsupported Rust target {target} for merged native library").into()),
+    }
 }
 
 fn safe_relative_path(value: &str) -> BuildResult<PathBuf> {
