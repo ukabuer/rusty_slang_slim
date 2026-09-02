@@ -10,11 +10,12 @@ use std::io::{self, BufReader, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
-const INDEX_JSON: &str = include_str!("native-artifacts.json");
 const MANIFEST_SCHEMA_VERSION: u32 = 1;
 const ABI_VERSION: u32 = 1;
 const SUPPORTED_TARGETS: [&str; 2] = ["x86_64-pc-windows-msvc", "aarch64-linux-android"];
 const MERGED_LIBRARY_NAME: &str = "slang-slim";
+const DEFAULT_RELEASE_BASE_URL: &str =
+    "https://github.com/ukabuer/rusty_slang_slim/releases/download";
 
 const ENV_NATIVE_DIR: &str = "SLANG_SLIM_NATIVE_DIR";
 const ENV_NATIVE_BUILD_DIR: &str = "SLANG_SLIM_NATIVE_BUILD_DIR";
@@ -24,23 +25,9 @@ const ENV_NATIVE_SHA256: &str = "SLANG_SLIM_NATIVE_SHA256";
 const ENV_CACHE_DIR: &str = "SLANG_SLIM_CACHE_DIR";
 const ENV_RELEASE_BASE_URL: &str = "SLANG_SLIM_RELEASE_BASE_URL";
 const ENV_DISABLE_DOWNLOAD: &str = "SLANG_SLIM_DISABLE_DOWNLOAD";
+const NATIVE_ARCHIVE_PREFIX: &str = "slang-slim-native-v";
 
 type BuildResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
-
-#[derive(Debug, Deserialize)]
-struct ArtifactIndex {
-    schema_version: u32,
-    release_base_url: Option<String>,
-    artifacts: Vec<ReleaseArtifact>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ReleaseArtifact {
-    version: String,
-    target: String,
-    archive: String,
-    sha256: String,
-}
 
 #[derive(Debug, Deserialize)]
 struct NativeManifest {
@@ -166,7 +153,6 @@ const ANDROID_LINK_ARGUMENTS: &[&str] = &["-pthread"];
 
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
-    println!("cargo::rerun-if-changed=native-artifacts.json");
     println!("cargo::rerun-if-changed=../../native/include/slang_c_api.h");
     println!("cargo::rustc-check-cfg=cfg(slang_slim_native_linked)");
     for variable in [
@@ -200,19 +186,7 @@ fn run() -> BuildResult<()> {
 
     let target = required_env("TARGET")?;
     let version = required_env("CARGO_PKG_VERSION")?;
-    let index: ArtifactIndex = serde_json::from_str(INDEX_JSON)?;
-    if index.schema_version != MANIFEST_SCHEMA_VERSION {
-        return Err(format!(
-            "unsupported native-artifacts.json schema {}; expected {}",
-            index.schema_version, MANIFEST_SCHEMA_VERSION
-        )
-        .into());
-    }
-
-    let release = index
-        .artifacts
-        .iter()
-        .find(|artifact| artifact.version == version && artifact.target == target);
+    let archive_name = native_archive_name(&version, &target);
     let native_dir = env::var_os(ENV_NATIVE_DIR);
     let native_build_dir = env::var_os(ENV_NATIVE_BUILD_DIR);
     let native_archive = env::var_os(ENV_NATIVE_ARCHIVE);
@@ -255,19 +229,6 @@ fn run() -> BuildResult<()> {
         );
         return Ok(());
     }
-    if native_required
-        && release.is_none()
-        && native_dir.is_none()
-        && native_build_dir.is_none()
-        && native_archive.is_none()
-        && !from_source
-    {
-        return Err(format!(
-            "native linking is required by feature `native`; set {ENV_NATIVE_ARCHIVE} (with a sibling .sha256 file), {ENV_NATIVE_DIR}, {ENV_NATIVE_BUILD_DIR}, or {ENV_FROM_SOURCE}=1"
-        )
-        .into());
-    }
-
     if !SUPPORTED_TARGETS.contains(&target.as_str()) {
         return Err(format!(
             "unsupported Rust target {target}; supported targets: {}",
@@ -303,16 +264,12 @@ fn run() -> BuildResult<()> {
         if let Some(path) = archive_source.as_ref() {
             println!("cargo::rerun-if-changed={}", path.display());
         }
-        let expected_hash = expected_archive_hash(archive_source.as_deref(), release)?;
-        let archive_name = release
-            .map(|artifact| artifact.archive.clone())
-            .or_else(|| {
-                archive_source
-                    .as_ref()
-                    .and_then(|path| path.file_name())
-                    .map(|name| name.to_string_lossy().into_owned())
-            })
-            .ok_or("could not determine native archive name")?;
+        let expected_hash = explicit_archive_hash(archive_source.as_deref())?;
+        let archive_url = if archive_source.is_none() {
+            Some(native_archive_url(&release_base_url(), &version, &target))
+        } else {
+            None
+        };
         let cache_root = cache_root()?;
         fs::create_dir_all(&cache_root)?;
         let lock_path = cache_root.join(format!("{target}.lock"));
@@ -324,19 +281,17 @@ fn run() -> BuildResult<()> {
             .open(&lock_path)?;
         FileExt::lock_exclusive(&lock)?;
 
-        let cached_archive = ensure_cached_archive(
+        let (cached_archive, archive_hash) = ensure_cached_archive(
             &cache_root,
             &archive_name,
-            &expected_hash,
+            expected_hash.as_deref(),
             archive_source.as_deref(),
-            release,
-            index.release_base_url.as_deref(),
-            &version,
+            archive_url.as_deref(),
         )?;
         ensure_extracted(
             &cache_root,
             &cached_archive,
-            &expected_hash,
+            &archive_hash,
             &target,
             &version,
         )?
@@ -378,35 +333,42 @@ fn resolve_user_path(value: OsString) -> BuildResult<PathBuf> {
     Ok(PathBuf::from(required_env("CARGO_MANIFEST_DIR")?).join(path))
 }
 
-fn expected_archive_hash(
-    local_archive: Option<&Path>,
-    release: Option<&ReleaseArtifact>,
-) -> BuildResult<String> {
+fn explicit_archive_hash(local_archive: Option<&Path>) -> BuildResult<Option<String>> {
     if let Some(value) = env::var_os(ENV_NATIVE_SHA256) {
-        return normalize_sha256(&value.to_string_lossy());
+        return Ok(Some(normalize_sha256(&value.to_string_lossy())?));
     }
-    // An explicit local archive is a development/release-pipeline override;
-    // its sibling checksum must be authoritative even when the same crate
-    // version already has an entry in the checked-in release index.
     if let Some(archive) = local_archive {
         let checksum_path = appended_extension(archive, ".sha256");
         println!("cargo::rerun-if-changed={}", checksum_path.display());
-        let checksum = fs::read_to_string(&checksum_path).map_err(|error| {
-            format!(
-                "no embedded checksum is available; failed to read {}: {error}",
-                checksum_path.display()
-            )
-        })?;
-        let first_field = checksum
-            .split_whitespace()
-            .next()
-            .ok_or_else(|| format!("{} is empty", checksum_path.display()))?;
-        return normalize_sha256(first_field);
+        return Ok(Some(read_checksum_file(&checksum_path).map_err(
+            |error| {
+                format!(
+                    "no archive checksum is available; failed to read {}: {error}",
+                    checksum_path.display()
+                )
+            },
+        )?));
     }
-    if let Some(artifact) = release {
-        return normalize_sha256(&artifact.sha256);
-    }
-    Err("no native archive checksum is available".into())
+    Ok(None)
+}
+
+fn native_archive_name(version: &str, target: &str) -> String {
+    format!("{NATIVE_ARCHIVE_PREFIX}{version}-{target}.zip")
+}
+
+fn native_archive_url(base_url: &str, version: &str, target: &str) -> String {
+    format!(
+        "{}/v{version}/{}",
+        base_url.trim_end_matches('/'),
+        native_archive_name(version, target)
+    )
+}
+
+fn release_base_url() -> String {
+    env::var(ENV_RELEASE_BASE_URL)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_RELEASE_BASE_URL.to_owned())
 }
 
 fn appended_extension(path: &Path, suffix: &str) -> PathBuf {
@@ -439,16 +401,13 @@ fn cache_root() -> BuildResult<PathBuf> {
     Ok(PathBuf::from(required_env("OUT_DIR")?).join("slang-slim-cache"))
 }
 
-#[allow(clippy::too_many_arguments)]
 fn ensure_cached_archive(
     cache_root: &Path,
     archive_name: &str,
-    expected_hash: &str,
+    expected_hash: Option<&str>,
     local_archive: Option<&Path>,
-    release: Option<&ReleaseArtifact>,
-    indexed_base_url: Option<&str>,
-    version: &str,
-) -> BuildResult<PathBuf> {
+    remote_url: Option<&str>,
+) -> BuildResult<(PathBuf, String)> {
     validate_single_line("archive name", archive_name)?;
     if Path::new(archive_name)
         .file_name()
@@ -458,12 +417,19 @@ fn ensure_cached_archive(
         return Err(format!("archive name must be a plain file name: {archive_name}").into());
     }
 
-    let download_directory = cache_root.join("downloads").join(expected_hash);
+    let expected_hash = if let Some(value) = expected_hash {
+        normalize_sha256(value)?
+    } else if let Some(url) = remote_url {
+        remote_checksum(cache_root, url)?
+    } else {
+        return Err("no checksum source is available for the native archive".into());
+    };
+    let download_directory = cache_root.join("downloads").join(&expected_hash);
     fs::create_dir_all(&download_directory)?;
     let cached_archive = download_directory.join(archive_name);
     if cached_archive.is_file() {
         if sha256_file(&cached_archive)? == expected_hash {
-            return Ok(cached_archive);
+            return Ok((cached_archive, expected_hash));
         }
         fs::remove_file(&cached_archive)?;
     }
@@ -482,33 +448,15 @@ fn ensure_cached_archive(
             Ok(())
         }
     } else {
-        let artifact = release.ok_or_else(|| {
-            format!(
-                "no release metadata for version {version}; set {ENV_NATIVE_ARCHIVE} or \
-                 {ENV_NATIVE_DIR} for a local build"
-            )
+        let url = remote_url.ok_or_else(|| {
+            format!("a remote archive URL is required when {ENV_NATIVE_ARCHIVE} is not set")
         })?;
-        let base_url = env::var(ENV_RELEASE_BASE_URL)
-            .ok()
-            .or_else(|| indexed_base_url.map(str::to_owned))
-            .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| {
-                format!(
-                    "no release base URL is configured; set {ENV_RELEASE_BASE_URL} or publish \
-                     it in native-artifacts.json"
-                )
-            })?;
         if downloads_disabled() {
             return Err(format!(
                 "native archive is not cached and downloads are disabled; provide {ENV_NATIVE_ARCHIVE}"
             )
             .into());
         }
-        let url = format!(
-            "{}/v{version}/{}",
-            base_url.trim_end_matches('/'),
-            artifact.archive
-        );
         download(&url, &temporary)?;
         let actual_hash = sha256_file(&temporary)?;
         if actual_hash != expected_hash {
@@ -526,7 +474,61 @@ fn ensure_cached_archive(
         return Err(error);
     }
     fs::rename(&temporary, &cached_archive)?;
-    Ok(cached_archive)
+    Ok((cached_archive, expected_hash))
+}
+
+fn remote_checksum(cache_root: &Path, archive_url: &str) -> BuildResult<String> {
+    let checksum_url = format!("{archive_url}.sha256");
+    let checksum_directory = cache_root.join("checksums");
+    fs::create_dir_all(&checksum_directory)?;
+    let checksum_path =
+        checksum_directory.join(format!("{}.sha256", sha256_bytes(checksum_url.as_bytes())));
+    if checksum_path.is_file() {
+        match read_checksum_file(&checksum_path) {
+            Ok(hash) => return Ok(hash),
+            Err(error) if downloads_disabled() => {
+                return Err(format!(
+                    "cached native checksum {} is invalid and downloads are disabled: {error}",
+                    checksum_path.display()
+                )
+                .into());
+            }
+            Err(_) => fs::remove_file(&checksum_path)?,
+        }
+    }
+    if downloads_disabled() {
+        return Err(format!(
+            "native checksum is not cached and downloads are disabled; provide {ENV_NATIVE_SHA256} or {ENV_NATIVE_ARCHIVE}"
+        )
+        .into());
+    }
+
+    let temporary = unique_temporary_path(&checksum_directory, "checksum.part")?;
+    let result: BuildResult<String> = (|| {
+        download(&checksum_url, &temporary)?;
+        let hash = read_checksum_file(&temporary)?;
+        fs::rename(&temporary, &checksum_path)?;
+        Ok(hash)
+    })();
+    if result.is_err() && temporary.exists() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+fn read_checksum_file(path: &Path) -> BuildResult<String> {
+    let checksum = fs::read_to_string(path)?;
+    let first_field = checksum
+        .split_whitespace()
+        .next()
+        .ok_or_else(|| format!("{} is empty", path.display()))?;
+    normalize_sha256(first_field)
+}
+
+fn sha256_bytes(value: &[u8]) -> String {
+    let mut digest = Sha256::new();
+    digest.update(value);
+    format!("{:x}", digest.finalize())
 }
 
 fn downloads_disabled() -> bool {

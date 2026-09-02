@@ -46,9 +46,10 @@ cargo build -p slang-slim --features native-tests --example multi_target_compile
 
 The archive's sibling `.zip.sha256` file is checked automatically. Without a
 native archive or source override, ordinary source checks still work. Native
-tests and examples use the matching release entry in
-`crates/slang-slim-sys/native-artifacts.json`; set a local archive or mirror
-when the corresponding GitHub Release asset is not available yet.
+tests and examples derive the matching GitHub Release URL from the crate
+version and target, then verify the downloaded archive against its sibling
+`.zip.sha256` sidecar. Set a local archive or mirror when the corresponding
+GitHub Release asset is not available yet.
 
 When iterating on the native CMake build itself, set
 `SLANG_SLIM_NATIVE_BUILD_DIR` to `build/native/windows-x64` after the Release

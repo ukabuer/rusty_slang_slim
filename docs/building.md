@@ -98,10 +98,8 @@ cmake --build --preset android-arm64-release --parallel
 Assets and their sibling SHA-256 files are written under `build/packages` by
 default. The ZIP manifest is the contract consumed by the
 `slang-slim-sys` download/link step. Keep `-Version` synchronized with the
-crate version; the current checked-in index contains the two `0.1.0` assets.
-The manifest records the pinned Slang commit and omits the root repository
-`HEAD`, so writing the generated hash into `native-artifacts.json` does not
-change the archive hash.
+crate version. The `.zip.sha256` sidecar is consumed by `slang-slim-sys` for
+remote archive integrity verification.
 
 ## Exercise the Rust linker locally
 
@@ -120,6 +118,12 @@ validated extraction in a persistent Cargo cache, and links the single merged
 library listed in the manifest. `SLANG_SLIM_NATIVE_DIR` can instead point at an already
 extracted package. `SLANG_SLIM_CACHE_DIR` overrides the cache location, and
 `SLANG_SLIM_RELEASE_BASE_URL` selects a GitHub-compatible mirror.
+
+For a published build, the archive URL is derived from the crate version and
+Rust target as
+`<base>/v<version>/slang-slim-native-v<version>-<target>.zip`, and the checksum
+is fetched from the same URL with `.sha256` appended. The checksum sidecar is
+cached alongside the downloaded archive metadata.
 
 If CMake has already built the native libraries, Cargo can link that tree
 directly without creating a ZIP or downloading anything. This is the explicit
@@ -164,11 +168,13 @@ builds and installs the Windows host generators required by the Android Slang
 configuration. It is analogous to `rusty_v8`'s `V8_FROM_SOURCE=1` mode and is
 intended for maintainer/development builds, not published consumer builds.
 
-The checked-in `0.1.0` metadata enables automatic download for the Windows and
-Android targets when the `native` feature is enabled. Builds without that
-feature remain source-only, so ordinary workspace checks do not need a native
-asset. `CARGO_NET_OFFLINE=true` and `SLANG_SLIM_DISABLE_DOWNLOAD=1` prohibit
-network fallback; provide a local archive or a populated cache in those modes.
+Any published version with both target archives and their `.sha256` sidecars
+enables automatic download for the Windows and Android targets when the
+`native` feature is enabled. Builds without that feature remain source-only,
+so ordinary workspace checks do not need a native asset.
+`CARGO_NET_OFFLINE=true` and `SLANG_SLIM_DISABLE_DOWNLOAD=1` prohibit network
+fallback; provide a local archive, `SLANG_SLIM_NATIVE_SHA256`, or a populated
+cache in those modes.
 
 The first Windows release supports the dynamic MSVC CRT only. A Cargo build
 using `-C target-feature=+crt-static` is rejected until a matching static-CRT
@@ -181,13 +187,12 @@ is the reproducible maintainer path. It checks formatting and the workspace,
 verifies the Slang submodule revision, installs the pinned Android NDK
 `27.3.13750724`, builds both Release native configurations, runs the Windows
 ABI smoke executable, validates the Android ARM64 ELF link result, compiles the
-Rust native tests, checks archive size budgets, and uploads the packaged assets.
+Rust native tests, and checks archive size budgets. The release archives are
+uploaded only on `v<crate-version>` tag runs.
 
 Tags in the form `v<crate-version>` additionally publish the two archives and
-their SHA-256 sidecars as a GitHub Release. The checked-in
-`crates/slang-slim-sys/native-artifacts.json` must be updated with those hashes
-before tagging; `scripts/update-native-artifacts.ps1` can generate the entries
-from `build/packages`, and the release job verifies the index and refuses to
-publish a mismatch.
+their SHA-256 sidecars as a GitHub Release. No repository-side artifact index
+needs to be edited: the tag CI job builds the archives, generates the sidecars,
+and publishes both files under the derived version/target names.
 
 All generated files stay below `build` and are ignored by Git.

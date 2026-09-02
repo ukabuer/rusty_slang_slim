@@ -116,7 +116,12 @@ jobs:
           cargo test --workspace --features native-tests -- --nocapture
           cargo build -p slang-slim --features native-tests --example multi_target_compile
 
+      - name: Run packaged Rust multi-target example
+        shell: pwsh
+        run: .\target\debug\examples\multi_target_compile.exe
+
       - name: Upload Windows release asset
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: native-package-windows
@@ -231,11 +236,15 @@ jobs:
         run: |
           $toolchain = Join-Path $env:ANDROID_NDK_HOME "toolchains/llvm/prebuilt/windows-x86_64/bin"
           $clang = Join-Path $toolchain "aarch64-linux-android29-clang.cmd"
+          $clangxx = Join-Path $toolchain "aarch64-linux-android29-clang++.cmd"
           if (-not (Test-Path -LiteralPath $clang -PathType Leaf)) {
               throw "Android clang driver was not found at $clang"
           }
+          if (-not (Test-Path -LiteralPath $clangxx -PathType Leaf)) {
+              throw "Android clang++ driver was not found at $clangxx"
+          }
           "CC_aarch64_linux_android=$clang" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "CXX_aarch64_linux_android=$clang" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CXX_aarch64_linux_android=$clangxx" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$clang" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Compile Rust Android native smoke tests
@@ -249,6 +258,7 @@ jobs:
           cargo build -p slang-slim --target aarch64-linux-android --features native-tests --example multi_target_compile
 
       - name: Upload Android release asset
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: native-package-android
@@ -269,20 +279,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Check out release metadata
-        uses: actions/checkout@v4
-
       - name: Download native packages
         uses: actions/download-artifact@v4
         with:
           path: build/packages
           merge-multiple: true
-
-      - name: Verify release index and checksums
-        shell: pwsh
-        run: |
-          $version = $env:GITHUB_REF_NAME.Substring(1)
-          ./scripts/verify-native-release.ps1 -Version $version -PackageDirectory build/packages
 
       - name: Publish native packages
         uses: softprops/action-gh-release@v2

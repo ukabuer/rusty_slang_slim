@@ -1,4 +1,5 @@
-# Creates one checksum-addressed GitHub Release asset from a native Release build.
+# Creates one deterministic GitHub Release archive and its checksum sidecar
+# from a native Release build.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
@@ -420,10 +421,9 @@ try {
         version = $Version
         abi_version = 1
         target = $Target
-        # Keep the package hash independent of the root repository commit. The
-        # generated manifest is indexed by its SHA-256 in native-artifacts.json;
-        # embedding HEAD here would make updating that index change HEAD and
-        # therefore invalidate the package hash in a release-preparation loop.
+        # Keep the package hash independent of the root repository commit.
+        # Embedding HEAD would make a release package change when only release
+        # metadata changes.
         slang_commit = Get-GitValue -WorkingDirectory $slangSource -Arguments @("rev-parse", "HEAD")
         link = [ordered]@{
             kind = "static"

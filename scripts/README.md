@@ -9,7 +9,7 @@ file. Run it only after the corresponding Release preset succeeds:
 
 The manifest records the pinned Slang commit, but intentionally does not record
 the root repository `HEAD`. This keeps the archive SHA-256 stable when the
-generated hash is written back to `native-artifacts.json` before tagging.
+tag CI job publishes the archive and its checksum sidecar.
 
 ```powershell
 ./scripts/package-native.ps1 `
@@ -21,10 +21,15 @@ generated hash is written back to `native-artifacts.json` before tagging.
   -Version 0.1.0
 ```
 
-Keep `-Version` synchronized with the crate version. The checked-in release
-index currently contains the two `0.1.0` assets.
+Keep `-Version` synchronized with the crate version. The output ZIP and its
+`.zip.sha256` sidecar use the same version/target names that the consumer
+build derives automatically.
 
 Consumer `cargo build` must not invoke these scripts.
+
+The consumer build derives release URLs without a hand-maintained path map:
+`<base>/v<version>/slang-slim-native-v<version>-<target>.zip`. It downloads the
+matching `.zip.sha256` sidecar and verifies the archive before extraction.
 
 ## CI and release gates
 
@@ -32,7 +37,8 @@ Consumer `cargo build` must not invoke these scripts.
 runs Rust checks, verifies the pinned Slang gitlink, builds the Windows x64 and
 Android ARM64/API 29 Release configurations, runs the Windows ABI executable
 smoke test, validates the Android ARM64 ELF link output, compiles the Rust
-native tests, and uploads the two deterministic archives as workflow artifacts.
+native tests, and checks the merged archive layout. Release archives are
+uploaded as workflow artifacts only for `v<version>` tag runs.
 
 The Android job installs NDK `27.3.13750724` and Ninja on a Windows runner so it
 uses the same host-generator flow as the documented local build. Android is a
@@ -54,17 +60,6 @@ for Android. A deliberate size increase should change those budgets in the
 same review as the build-profile change.
 
 Pushing a `v<crate-version>` tag runs the same jobs and then publishes both
-archives and their `.sha256` sidecars through the GitHub Release job. Before a
-tag is pushed, update `native-artifacts.json` with the generated archive names
-and hashes. The update can be generated from the two package outputs with:
-
-```powershell
-./scripts/update-native-artifacts.ps1 `
-  -Version 0.1.1 `
-  -PackageDirectory build/packages
-```
-
-Commit the resulting JSON change together with the version bump before pushing
-the tag. `verify-native-release.ps1` makes the release fail if the checked-in
-index does not exactly match the generated assets, preventing consumers from
-downloading an unindexed or incorrectly hashed archive.
+archives and their `.sha256` sidecars through the GitHub Release job. No
+generated release metadata is committed to the repository; the tag CI job is
+the sole source of published native artifacts.

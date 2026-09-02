@@ -172,17 +172,17 @@ The initial pin is Slang `v2026.16.1`.
 ## Distribution
 
 The Rust crate stays small and selects a GitHub Release asset from the crate
-version and Rust target triple. It embeds immutable SHA-256 metadata and
-supports local archives, mirrors, and persistent caches. The current index
-contains `0.1.0` Windows x64 and Android ARM64 entries; the corresponding ZIPs
-are published under the `v0.1.0` GitHub Release path when that release is cut.
+version and Rust target triple. It derives the archive URL and downloads the
+matching `.zip.sha256` sidecar for integrity verification. Local archives,
+mirrors, and persistent caches remain supported; no repository-side artifact
+index is required.
 
 Each native asset is named
 `slang-slim-native-v{version}-{rust-target}.zip`. It contains the public C
 header, the non-LTO static facade and its audited static dependencies, and a
 `manifest.json` that fixes the merged library path, platform runtime/system
-libraries, file sizes, and per-file SHA-256 hashes. A sibling `.zip.sha256` file records
-the checksum copied into the published Rust crate's artifact index.
+libraries, file sizes, and per-file SHA-256 hashes. A sibling `.zip.sha256` file
+is published with the archive and consumed by the Rust build script.
 
 The dependencies are flattened into the merged archive before packaging. This
 keeps one downloadable/linkable library for consumers; object-level extraction
@@ -196,4 +196,5 @@ For maintainer iteration, `slang-slim-sys` also accepts the development-only
 Release tree and links it directly; `SLANG_SLIM_NATIVE_BUILD_DIR` remains an
 explicit override for an already-built tree. Both paths bypass archive and
 checksum handling; published consumers continue to use the versioned,
-validated native asset flow.
+validated native asset flow. Remote archives and checksums are cached by their
+content/URL-derived keys, while local source overrides bypass this flow.
