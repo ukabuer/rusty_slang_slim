@@ -1,0 +1,159 @@
+name: native-release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: native-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publish GitHub Release assets
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@v7
+
+      - name: Validate release tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="$GITHUB_REF_NAME"
+          if [[ "$GITHUB_REF_TYPE" != "tag" || ! "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?)$ ]]; then
+            echo "Release tags must use the v<semver> form: $tag" >&2
+            exit 1
+          fi
+          tag_version="${BASH_REMATCH[1]}"
+
+          crate_version="$(sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' crates/slang-slim-sys/Cargo.toml | head -n 1)"
+          if [[ -z "$crate_version" ]]; then
+            echo "Could not determine slang-slim-sys version" >&2
+            exit 1
+          fi
+          if [[ "$tag_version" != "$crate_version" ]]; then
+            echo "Git tag $tag does not match crate version $crate_version" >&2
+            exit 1
+          fi
+
+          echo "version=$crate_version" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for matching successful main build
+        id: main-run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          # A tag can be pushed immediately after main. Poll until the main
+          # workflow for this exact commit has finished, for at most one hour.
+          max_attempts=120
+          poll_seconds=30
+          for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+            run_info="$(
+              gh api --method GET \
+                -H "Accept: application/vnd.github+json" \
+                "/repos/${GITHUB_REPOSITORY}/actions/workflows/native.yml/runs" \
+                -f "head_sha=${COMMIT_SHA}" \
+                -f "branch=main" \
+                -f "event=push" \
+                -f "per_page=100" \
+                --jq '.workflow_runs | sort_by(.created_at) | reverse | if length == 0 then empty else .[0] | [(.id | tostring), .status, (.conclusion // "")] | @tsv end'
+            )"
+
+            if [[ -n "$run_info" ]]; then
+              IFS=$'\t' read -r run_id run_status run_conclusion <<< "$run_info"
+              echo "Matching main run $run_id is $run_status${run_conclusion:+ ($run_conclusion)}"
+              if [[ "$run_status" == "completed" ]]; then
+                if [[ "$run_conclusion" != "success" ]]; then
+                  echo "The matching main workflow did not succeed: $run_conclusion" >&2
+                  exit 1
+                fi
+                echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            else
+              echo "No matching main workflow run found yet (attempt $attempt/$max_attempts)"
+            fi
+
+            if (( attempt < max_attempts )); then
+              sleep "$poll_seconds"
+            fi
+          done
+
+          echo "Timed out waiting for a successful native.yml main run at $COMMIT_SHA" >&2
+          exit 1
+
+      - name: Download native packages from main build
+        uses: actions/download-artifact@v7
+        with:
+          pattern: native-package-*
+          path: build/packages
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.main-run.outputs.run_id }}
+
+      - name: Verify downloaded packages
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          targets=(
+            x86_64-pc-windows-msvc
+            aarch64-linux-android
+          )
+          expected_names=()
+          for target in "${targets[@]}"; do
+            archive="slang-slim-native-v${VERSION}-${target}.zip"
+            expected_names+=("$archive")
+
+            if [[ ! -f "build/packages/$archive" ]]; then
+              echo "Missing package for $target" >&2
+              exit 1
+            fi
+            unzip -tqq "build/packages/$archive"
+
+            unzip -p "build/packages/$archive" manifest.json |
+              jq -e --arg version "$VERSION" --arg target "$target" \
+                '.version == $version and .target == $target and .link.kind == "static"' >/dev/null
+          done
+
+          actual_names=()
+          for file in build/packages/*; do
+            actual_names+=("${file##*/}")
+          done
+          expected_sorted="$(printf '%s\n' "${expected_names[@]}" | sort)"
+          actual_sorted="$(printf '%s\n' "${actual_names[@]}" | sort)"
+          if [[ "$expected_sorted" != "$actual_sorted" ]]; then
+            echo "Downloaded package set does not match the expected Windows/Android release set" >&2
+            printf 'Expected:\n%s\n' "$expected_sorted" >&2
+            printf 'Actual:\n%s\n' "$actual_sorted" >&2
+            exit 1
+          fi
+
+      - name: Publish native packages
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            build/packages/*.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

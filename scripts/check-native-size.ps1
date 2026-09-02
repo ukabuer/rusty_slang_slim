@@ -45,18 +45,7 @@ if ($archive.Length -gt $maxArchiveBytes) {
     throw "Native package $($archive.Name) is $($archive.Length) bytes, above the $MaxArchiveMiB MiB archive budget"
 }
 
-$checksumPath = "$PackagePath.sha256"
-if (-not (Test-Path -LiteralPath $checksumPath -PathType Leaf)) {
-    throw "Missing package checksum: $checksumPath"
-}
-$checksumField = (Get-Content -LiteralPath $checksumPath -Raw).Trim() -split "\s+"
-if ($checksumField.Count -lt 2 -or $checksumField[1] -ne $archive.Name) {
-    throw "Checksum file $checksumPath does not name $($archive.Name)"
-}
 $actualArchiveHash = (Get-FileHash -LiteralPath $PackagePath -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($checksumField[0].ToLowerInvariant() -ne $actualArchiveHash) {
-    throw "Checksum mismatch for $($archive.Name): file has $actualArchiveHash, checksum has $($checksumField[0])"
-}
 
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem

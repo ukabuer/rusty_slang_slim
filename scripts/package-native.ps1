@@ -1,4 +1,4 @@
-# Creates one deterministic GitHub Release archive and its checksum sidecar
+# Creates one deterministic GitHub Release archive with a link manifest
 # from a native Release build.
 [CmdletBinding()]
 param(
@@ -374,7 +374,6 @@ foreach ($library in $targetConfig.input_libraries) {
 [IO.Directory]::CreateDirectory($OutputDirectory) | Out-Null
 $assetStem = "slang-slim-native-v$Version-$Target"
 $assetPath = Join-Path $OutputDirectory "$assetStem.zip"
-$checksumPath = "$assetPath.sha256"
 $stagingRoot = Join-Path $OutputDirectory ".staging-$assetStem-$([Guid]::NewGuid().ToString('N'))"
 $stagingRoot = [IO.Path]::GetFullPath($stagingRoot)
 $outputPrefix = $OutputDirectory.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
@@ -445,11 +444,6 @@ try {
 
     New-DeterministicZip -SourceDirectory $stagingRoot -ArchivePath $assetPath
     $assetHash = (Get-FileHash -LiteralPath $assetPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    [IO.File]::WriteAllText(
-        $checksumPath,
-        "$assetHash  $([IO.Path]::GetFileName($assetPath))`n",
-        [Text.UTF8Encoding]::new($false)
-    )
 
     $asset = Get-Item -LiteralPath $assetPath
     Write-Host "Created $assetPath"

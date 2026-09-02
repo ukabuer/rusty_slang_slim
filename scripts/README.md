@@ -4,12 +4,12 @@
 generators, and configures the Android ARM64/API 29 cross build.
 
 `package-native.ps1` merges the audited static-library set into one platform
-archive, writes a machine-readable link manifest, and emits a sibling SHA-256
-file. Run it only after the corresponding Release preset succeeds:
+archive and writes a machine-readable link manifest. Run it only after the
+corresponding Release preset succeeds:
 
 The manifest records the pinned Slang commit, but intentionally does not record
-the root repository `HEAD`. This keeps the archive SHA-256 stable when the
-tag CI job publishes the archive and its checksum sidecar.
+the root repository `HEAD`. This keeps the archive bytes stable when the
+release workflow publishes the asset; GitHub records the ZIP's SHA-256 digest.
 
 ```powershell
 ./scripts/package-native.ps1 `
@@ -21,15 +21,22 @@ tag CI job publishes the archive and its checksum sidecar.
   -Version 0.1.0
 ```
 
-Keep `-Version` synchronized with the crate version. The output ZIP and its
-`.zip.sha256` sidecar use the same version/target names that the consumer
-build derives automatically.
+Keep `-Version` synchronized with the crate version. The output ZIP uses the
+same version/target name that the consumer build derives automatically.
 
 Consumer `cargo build` must not invoke these scripts.
 
+Maintainers can set `SLANG_SLIM_FROM_SOURCE=1` for a one-command local source
+build. Cargo configures/builds the matching CMake Release target and links it
+directly; archive downloads and Release API queries are skipped. Android source
+builds accept the bundled `build/toolchains/android-ndk-r27d` NDK or an NDK
+selected with `ANDROID_NDK_HOME`/`ANDROID_NDK_ROOT`; the Android path currently
+assumes a Windows host, matching CI.
+
 The consumer build derives release URLs without a hand-maintained path map:
-`<base>/v<version>/slang-slim-native-v<version>-<target>.zip`. It downloads the
-matching `.zip.sha256` sidecar and verifies the archive before extraction.
+`<base>/v<version>/slang-slim-native-v<version>-<target>.zip`. With the default
+GitHub base URL it queries the Release API for the asset's SHA-256 `digest`,
+caches that metadata, and verifies the archive before extraction.
 
 ## CI and release gates
 
@@ -37,8 +44,9 @@ matching `.zip.sha256` sidecar and verifies the archive before extraction.
 runs Rust checks, verifies the pinned Slang gitlink, builds the Windows x64 and
 Android ARM64/API 29 Release configurations, runs the Windows ABI executable
 smoke test, validates the Android ARM64 ELF link output, compiles the Rust
-native tests, and checks the merged archive layout. Release archives are
-uploaded as workflow artifacts only for `v<version>` tag runs.
+native tests, and checks the merged archive layout. Successful `main` runs
+upload both release archives as workflow artifacts for the release workflow;
+pull-request runs still validate the build without uploading artifacts.
 
 The Android job installs NDK `27.3.13750724` and Ninja on a Windows runner so it
 uses the same host-generator flow as the documented local build. Android is a
@@ -59,7 +67,10 @@ The following helpers are also safe to run locally:
 for Android. A deliberate size increase should change those budgets in the
 same review as the build-profile change.
 
-Pushing a `v<crate-version>` tag runs the same jobs and then publishes both
-archives and their `.sha256` sidecars through the GitHub Release job. No
-generated release metadata is committed to the repository; the tag CI job is
-the sole source of published native artifacts.
+Pushing a `v<crate-version>` tag starts `.github/workflows/release.yml`. It
+waits (up to one hour) for the successful `native.yml` `main` run for the tag's
+exact commit, downloads that run's two archives, verifies their ZIP structure
+and manifests, and publishes them through the GitHub Release job. GitHub
+records the SHA-256 digest for each published asset. Main-build artifacts are
+retained for 30 days. No generated release metadata is committed to the
+repository.

@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.22)
 
+if(POLICY CMP0141)
+    cmake_policy(SET CMP0141 NEW)
+endif()
+
 project(slang_slim LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
@@ -39,6 +43,17 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/SlangSlimOptions.cmake")
 slang_slim_configure_slang()
+
+# The vendored miniz project appends `/Zi` to the common C flags on MSVC,
+# bypassing Slang's Release debug-info option. Use CMake's per-project include
+# hook to remove that flag from miniz's common flags; Debug and RelWithDebInfo
+# still receive their normal configuration-specific `/Zi` flags.
+if(MSVC AND NOT SLANG_ENABLE_RELEASE_DEBUG_INFO)
+    set(
+        CMAKE_PROJECT_miniz_INCLUDE
+        "${CMAKE_CURRENT_LIST_DIR}/cmake/SlangMinizRelease.cmake"
+    )
+endif()
 
 add_subdirectory(
     "${SLANG_SLIM_SLANG_SOURCE_DIR}"

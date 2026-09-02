@@ -16,9 +16,10 @@ const SUPPORTED_TARGETS: [&str; 2] = ["x86_64-pc-windows-msvc", "aarch64-linux-a
 const MERGED_LIBRARY_NAME: &str = "slang-slim";
 const DEFAULT_RELEASE_BASE_URL: &str =
     "https://github.com/ukabuer/rusty_slang_slim/releases/download";
+const DEFAULT_GITHUB_API_BASE_URL: &str = "https://api.github.com";
+const DEFAULT_GITHUB_REPOSITORY: &str = "ukabuer/rusty_slang_slim";
 
 const ENV_NATIVE_DIR: &str = "SLANG_SLIM_NATIVE_DIR";
-const ENV_NATIVE_BUILD_DIR: &str = "SLANG_SLIM_NATIVE_BUILD_DIR";
 const ENV_NATIVE_ARCHIVE: &str = "SLANG_SLIM_NATIVE_ARCHIVE";
 const ENV_FROM_SOURCE: &str = "SLANG_SLIM_FROM_SOURCE";
 const ENV_NATIVE_SHA256: &str = "SLANG_SLIM_NATIVE_SHA256";
@@ -65,6 +66,17 @@ struct FileManifest {
     sha256: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct GitHubRelease {
+    assets: Vec<GitHubReleaseAsset>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubReleaseAsset {
+    name: String,
+    digest: Option<String>,
+}
+
 #[derive(Clone, Copy)]
 struct LocalLibrary {
     name: &'static str,
@@ -72,8 +84,6 @@ struct LocalLibrary {
 }
 
 struct LocalNativeLayout {
-    // Source builds expose the seven CMake archives directly. Release ZIPs
-    // flatten these inputs into the one `MERGED_LIBRARY_NAME` archive below.
     libraries: &'static [LocalLibrary],
     runtime_libraries: &'static [&'static str],
     system_libraries: &'static [&'static str],
@@ -159,7 +169,6 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(slang_slim_native_linked)");
     for variable in [
         ENV_NATIVE_DIR,
-        ENV_NATIVE_BUILD_DIR,
         ENV_NATIVE_ARCHIVE,
         ENV_FROM_SOURCE,
         ENV_NATIVE_SHA256,
@@ -192,44 +201,24 @@ fn run() -> BuildResult<()> {
     let version = required_env("CARGO_PKG_VERSION")?;
     let archive_name = native_archive_name(&version, &target);
     let native_dir = env::var_os(ENV_NATIVE_DIR);
-    let native_build_dir = env::var_os(ENV_NATIVE_BUILD_DIR);
     let native_archive = env::var_os(ENV_NATIVE_ARCHIVE);
     let from_source = env_truthy(ENV_FROM_SOURCE);
     if from_source {
         println!("cargo::rerun-if-changed=../../native");
         println!("cargo::rerun-if-changed=../../third_party/slang");
-    }
-    if from_source {
-        if native_dir.is_some() || native_build_dir.is_some() || native_archive.is_some() {
+        if native_dir.is_some() || native_archive.is_some() {
             println!(
                 "cargo::warning={ENV_FROM_SOURCE}=1 takes precedence over native archive/directory overrides"
             );
         }
-    } else if [
-        native_dir.is_some(),
-        native_build_dir.is_some(),
-        native_archive.is_some(),
-    ]
-    .into_iter()
-    .filter(|configured| *configured)
-    .count()
-        > 1
-    {
-        return Err(format!(
-            "set only one of {ENV_NATIVE_DIR}, {ENV_NATIVE_BUILD_DIR}, and {ENV_NATIVE_ARCHIVE}"
-        )
-        .into());
+    } else if native_dir.is_some() && native_archive.is_some() {
+        return Err(format!("set only one of {ENV_NATIVE_DIR} and {ENV_NATIVE_ARCHIVE}").into());
     }
 
     let native_required = env::var_os("CARGO_FEATURE_NATIVE").is_some();
-    if !native_required
-        && native_dir.is_none()
-        && native_build_dir.is_none()
-        && native_archive.is_none()
-        && !from_source
-    {
+    if !native_required && native_dir.is_none() && native_archive.is_none() && !from_source {
         println!(
-            "cargo::warning=slang-slim-sys built without feature `native`; native linking is skipped. Set {ENV_NATIVE_ARCHIVE}, {ENV_NATIVE_DIR}, {ENV_NATIVE_BUILD_DIR}, or {ENV_FROM_SOURCE}=1 to exercise native linking"
+            "cargo::warning=slang-slim-sys built without feature `native`; native linking is skipped. Set {ENV_NATIVE_ARCHIVE}, {ENV_NATIVE_DIR}, or {ENV_FROM_SOURCE}=1 to exercise native linking"
         );
         return Ok(());
     }
@@ -250,12 +239,6 @@ fn run() -> BuildResult<()> {
         return Ok(());
     }
 
-    if let Some(path) = native_build_dir {
-        let path = resolve_user_path(path)?;
-        emit_local_build_link_instructions(&path, &target)?;
-        return Ok(());
-    }
-
     let native_root = if let Some(path) = native_dir {
         let path = resolve_user_path(path)?;
         println!(
@@ -268,9 +251,15 @@ fn run() -> BuildResult<()> {
         if let Some(path) = archive_source.as_ref() {
             println!("cargo::rerun-if-changed={}", path.display());
         }
+        let release_base_url = release_base_url();
         let expected_hash = explicit_archive_hash(archive_source.as_deref())?;
         let archive_url = if archive_source.is_none() {
-            Some(native_archive_url(&release_base_url(), &version, &target))
+            Some(native_archive_url(&release_base_url, &version, &target))
+        } else {
+            None
+        };
+        let release_api_url = if archive_source.is_none() {
+            github_release_api_url(&release_base_url, &version)
         } else {
             None
         };
@@ -291,6 +280,7 @@ fn run() -> BuildResult<()> {
             expected_hash.as_deref(),
             archive_source.as_deref(),
             archive_url.as_deref(),
+            release_api_url.as_deref(),
         )?;
         ensure_extracted(
             &cache_root,
@@ -342,16 +332,7 @@ fn explicit_archive_hash(local_archive: Option<&Path>) -> BuildResult<Option<Str
         return Ok(Some(normalize_sha256(&value.to_string_lossy())?));
     }
     if let Some(archive) = local_archive {
-        let checksum_path = appended_extension(archive, ".sha256");
-        println!("cargo::rerun-if-changed={}", checksum_path.display());
-        return Ok(Some(read_checksum_file(&checksum_path).map_err(
-            |error| {
-                format!(
-                    "no archive checksum is available; failed to read {}: {error}",
-                    checksum_path.display()
-                )
-            },
-        )?));
+        return Ok(Some(sha256_file(archive)?));
     }
     Ok(None)
 }
@@ -368,17 +349,20 @@ fn native_archive_url(base_url: &str, version: &str, target: &str) -> String {
     )
 }
 
+fn github_release_api_url(base_url: &str, version: &str) -> Option<String> {
+    if base_url.trim_end_matches('/') != DEFAULT_RELEASE_BASE_URL {
+        return None;
+    }
+    Some(format!(
+        "{DEFAULT_GITHUB_API_BASE_URL}/repos/{DEFAULT_GITHUB_REPOSITORY}/releases/tags/v{version}"
+    ))
+}
+
 fn release_base_url() -> String {
     env::var(ENV_RELEASE_BASE_URL)
         .ok()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_RELEASE_BASE_URL.to_owned())
-}
-
-fn appended_extension(path: &Path, suffix: &str) -> PathBuf {
-    let mut value = path.as_os_str().to_os_string();
-    value.push(suffix);
-    PathBuf::from(value)
 }
 
 fn normalize_sha256(value: &str) -> BuildResult<String> {
@@ -411,6 +395,7 @@ fn ensure_cached_archive(
     expected_hash: Option<&str>,
     local_archive: Option<&Path>,
     remote_url: Option<&str>,
+    remote_api_url: Option<&str>,
 ) -> BuildResult<(PathBuf, String)> {
     validate_single_line("archive name", archive_name)?;
     if Path::new(archive_name)
@@ -423,10 +408,13 @@ fn ensure_cached_archive(
 
     let expected_hash = if let Some(value) = expected_hash {
         normalize_sha256(value)?
-    } else if let Some(url) = remote_url {
-        remote_checksum(cache_root, url)?
+    } else if let Some(api_url) = remote_api_url {
+        remote_asset_digest(cache_root, api_url, archive_name)?
     } else {
-        return Err("no checksum source is available for the native archive".into());
+        return Err(format!(
+            "no checksum source is available for the native archive; set {ENV_NATIVE_SHA256} when using a custom release mirror"
+        )
+        .into());
     };
     let download_directory = cache_root.join("downloads").join(&expected_hash);
     fs::create_dir_all(&download_directory)?;
@@ -461,7 +449,7 @@ fn ensure_cached_archive(
             )
             .into());
         }
-        download(&url, &temporary)?;
+        download(url, &temporary)?;
         let actual_hash = sha256_file(&temporary)?;
         if actual_hash != expected_hash {
             Err(
@@ -481,37 +469,62 @@ fn ensure_cached_archive(
     Ok((cached_archive, expected_hash))
 }
 
-fn remote_checksum(cache_root: &Path, archive_url: &str) -> BuildResult<String> {
-    let checksum_url = format!("{archive_url}.sha256");
-    let checksum_directory = cache_root.join("checksums");
-    fs::create_dir_all(&checksum_directory)?;
-    let checksum_path =
-        checksum_directory.join(format!("{}.sha256", sha256_bytes(checksum_url.as_bytes())));
-    if checksum_path.is_file() {
-        match read_checksum_file(&checksum_path) {
+fn remote_asset_digest(
+    cache_root: &Path,
+    api_url: &str,
+    archive_name: &str,
+) -> BuildResult<String> {
+    let digest_directory = cache_root.join("digests");
+    fs::create_dir_all(&digest_directory)?;
+    let cache_key = format!("{api_url}\n{archive_name}");
+    let digest_path =
+        digest_directory.join(format!("{}.digest", sha256_bytes(cache_key.as_bytes())));
+    if digest_path.is_file() {
+        match normalize_github_digest(&fs::read_to_string(&digest_path)?) {
             Ok(hash) => return Ok(hash),
             Err(error) if downloads_disabled() => {
                 return Err(format!(
-                    "cached native checksum {} is invalid and downloads are disabled: {error}",
-                    checksum_path.display()
+                    "cached native release digest {} is invalid and downloads are disabled: {error}",
+                    digest_path.display()
                 )
                 .into());
             }
-            Err(_) => fs::remove_file(&checksum_path)?,
+            Err(_) => fs::remove_file(&digest_path)?,
         }
     }
     if downloads_disabled() {
         return Err(format!(
-            "native checksum is not cached and downloads are disabled; provide {ENV_NATIVE_SHA256} or {ENV_NATIVE_ARCHIVE}"
+            "native release asset digest is not cached and downloads are disabled; provide {ENV_NATIVE_SHA256} or {ENV_NATIVE_ARCHIVE}"
         )
         .into());
     }
 
-    let temporary = unique_temporary_path(&checksum_directory, "checksum.part")?;
+    println!("cargo::warning=querying native asset digest from {api_url}");
+    let mut response = ureq::get(api_url)
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", "slang-slim-sys")
+        .call()?;
+    let mut body = String::new();
+    response.body_mut().as_reader().read_to_string(&mut body)?;
+    let release: GitHubRelease = serde_json::from_str(&body)?;
+    let asset = release
+        .assets
+        .iter()
+        .find(|asset| asset.name == archive_name)
+        .ok_or_else(|| format!("GitHub Release API response has no asset named {archive_name}"))?;
+    let digest = asset.digest.as_deref().ok_or_else(|| {
+        format!(
+            "GitHub Release asset {archive_name} has no SHA-256 digest; set {ENV_NATIVE_SHA256}"
+        )
+    })?;
+    let hash = normalize_github_digest(digest)?;
+    let temporary = unique_temporary_path(&digest_directory, "digest.part")?;
     let result: BuildResult<String> = (|| {
-        download(&checksum_url, &temporary)?;
-        let hash = read_checksum_file(&temporary)?;
-        fs::rename(&temporary, &checksum_path)?;
+        let mut output = File::create(&temporary)?;
+        output.write_all(digest.as_bytes())?;
+        output.flush()?;
+        fs::rename(&temporary, &digest_path)?;
         Ok(hash)
     })();
     if result.is_err() && temporary.exists() {
@@ -520,13 +533,15 @@ fn remote_checksum(cache_root: &Path, archive_url: &str) -> BuildResult<String> 
     result
 }
 
-fn read_checksum_file(path: &Path) -> BuildResult<String> {
-    let checksum = fs::read_to_string(path)?;
-    let first_field = checksum
-        .split_whitespace()
-        .next()
-        .ok_or_else(|| format!("{} is empty", path.display()))?;
-    normalize_sha256(first_field)
+fn normalize_github_digest(value: &str) -> BuildResult<String> {
+    let (algorithm, digest) = value
+        .trim()
+        .split_once(':')
+        .ok_or_else(|| format!("invalid GitHub asset digest {value:?}"))?;
+    if !algorithm.eq_ignore_ascii_case("sha256") {
+        return Err(format!("unsupported GitHub asset digest algorithm {algorithm:?}").into());
+    }
+    normalize_sha256(digest)
 }
 
 fn sha256_bytes(value: &[u8]) -> String {
@@ -843,24 +858,26 @@ fn ensure_cmake_configured(
 }
 
 fn android_ndk_home(repository_root: &Path) -> BuildResult<OsString> {
-    if let Some(value) = env::var_os("ANDROID_NDK_HOME") {
-        if Path::new(&value).is_dir() {
-            return Ok(value);
+    for variable in [ENV_ANDROID_NDK_HOME, ENV_ANDROID_NDK_ROOT] {
+        if let Some(value) = env::var_os(variable) {
+            if Path::new(&value).is_dir() {
+                return Ok(value);
+            }
+            return Err(format!(
+                "{variable} does not point to a directory: {}",
+                Path::new(&value).display()
+            )
+            .into());
         }
-        return Err(format!(
-            "ANDROID_NDK_HOME does not point to a directory: {}",
-            Path::new(&value).display()
-        )
-        .into());
     }
     let bundled = repository_root.join("build/toolchains/android-ndk-r27d");
     if bundled.is_dir() {
         return Ok(bundled.into_os_string());
     }
-    Err(
-        "Android source builds require ANDROID_NDK_HOME or build/toolchains/android-ndk-r27d"
-            .into(),
+    Err(format!(
+        "Android source builds require {ENV_ANDROID_NDK_HOME} or {ENV_ANDROID_NDK_ROOT}, or build/toolchains/android-ndk-r27d"
     )
+    .into())
 }
 
 fn ensure_android_host_tools(
@@ -930,7 +947,7 @@ fn build_native_from_source(repository_root: &Path, target: &str) -> BuildResult
         }
         "aarch64-linux-android" => {
             let ndk_home = android_ndk_home(repository_root)?;
-            let environment = [("ANDROID_NDK_HOME", ndk_home.as_os_str())];
+            let environment = [(ENV_ANDROID_NDK_HOME, ndk_home.as_os_str())];
             ensure_android_host_tools(repository_root, &source_directory, &environment)?;
 
             let build_directory = repository_root.join("build/native/android-arm64");
@@ -1024,7 +1041,7 @@ fn emit_local_build_link_instructions(native_build_root: &Path, target: &str) ->
         println!("cargo::rustc-link-arg={argument}");
     }
     println!(
-        "cargo::warning=using local native CMake build at {}; this override is not checksum-validated",
+        "cargo::warning=using local native CMake build at {}; downloads are skipped",
         native_build_root.display()
     );
     println!(
@@ -1079,13 +1096,19 @@ fn emit_runtime_link_search_path(target: &str, needs_android_cxx_runtime: bool) 
 }
 
 fn android_ndk_cxx_library_directory() -> BuildResult<PathBuf> {
-    let configured_roots: Vec<PathBuf> = [ENV_ANDROID_NDK_HOME, ENV_ANDROID_NDK_ROOT]
+    let mut configured_roots: Vec<PathBuf> = [ENV_ANDROID_NDK_HOME, ENV_ANDROID_NDK_ROOT]
         .into_iter()
         .filter_map(|name| env::var_os(name).map(PathBuf::from))
         .collect();
     if configured_roots.is_empty() {
+        let bundled = repository_root()?.join("build/toolchains/android-ndk-r27d");
+        if bundled.is_dir() {
+            configured_roots.push(bundled);
+        }
+    }
+    if configured_roots.is_empty() {
         return Err(format!(
-            "Android native linking requires {ENV_ANDROID_NDK_HOME} or {ENV_ANDROID_NDK_ROOT} to locate libc++_static.a and libc++abi.a"
+            "Android native linking requires {ENV_ANDROID_NDK_HOME} or {ENV_ANDROID_NDK_ROOT} (or build/toolchains/android-ndk-r27d for a source build) to locate libc++_static.a and libc++abi.a"
         )
         .into());
     }

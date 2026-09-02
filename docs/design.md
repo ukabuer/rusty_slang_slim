@@ -159,9 +159,10 @@ result bytes.
 
 The native artifact shape is fixed by `scripts/package-native.ps1`: one
 deterministic ZIP contains the C ABI header, one merged platform archive, and a
-manifest plus sibling SHA-256 file. The merge consumes the facade and audited
-Slang dependency archives produced by the Release build; consumers do not need
-to know that internal archive layout.
+manifest with per-file SHA-256 values. GitHub exposes the ZIP's own SHA-256
+digest on the Release asset; no checksum sidecar is part of the package. The
+merge consumes the facade and audited Slang dependency archives produced by the
+Release build; consumers do not need to know that internal archive layout.
 
 ## Dependency policy
 
@@ -172,29 +173,30 @@ The initial pin is Slang `v2026.16.1`.
 ## Distribution
 
 The Rust crate stays small and selects a GitHub Release asset from the crate
-version and Rust target triple. It derives the archive URL and downloads the
-matching `.zip.sha256` sidecar for integrity verification. Local archives,
-mirrors, and persistent caches remain supported; no repository-side artifact
-index is required.
+version and Rust target triple. It derives the archive URL and queries the
+Release API for the matching asset's SHA-256 `digest` before downloading
+and verifying the ZIP. Local archives, mirrors, and persistent caches remain
+supported; custom mirrors require an explicit `SLANG_SLIM_NATIVE_SHA256` value because
+the project cannot infer a mirror's Release API digest. No repository-side
+artifact index or checksum sidecar is required.
 
 Each native asset is named
 `slang-slim-native-v{version}-{rust-target}.zip`. It contains the public C
 header, the non-LTO static facade and its audited static dependencies, and a
 `manifest.json` that fixes the merged library path, platform runtime/system
-libraries, file sizes, and per-file SHA-256 hashes. A sibling `.zip.sha256` file
-is published with the archive and consumed by the Rust build script.
+libraries, file sizes, and per-file SHA-256 hashes. The ZIP's SHA-256 digest is
+owned by GitHub's Release metadata.
 
 The dependencies are flattened into the merged archive before packaging. This
 keeps one downloadable/linkable library for consumers; object-level extraction
 still happens from the merged COFF/AR members at final link time. LTO archives
 are not published.
 
-Source builds are a maintainer and CI workflow only.
-
-For maintainer iteration, `slang-slim-sys` also accepts the development-only
-`SLANG_SLIM_FROM_SOURCE=1` switch. Cargo configures/builds the matching CMake
-Release tree and links it directly; `SLANG_SLIM_NATIVE_BUILD_DIR` remains an
-explicit override for an already-built tree. Both paths bypass archive and
-checksum handling; published consumers continue to use the versioned,
-validated native asset flow. Remote archives and checksums are cached by their
-content/URL-derived keys, while local source overrides bypass this flow.
+Source builds are a maintainer and CI workflow. For a local one-command build,
+`SLANG_SLIM_FROM_SOURCE=1` makes Cargo configure/build the matching CMake Release
+target and link its libraries directly, skipping archive downloads and API
+queries. For Android, the switch also prepares the Windows host generators and
+accepts the bundled `build/toolchains/android-ndk-r27d` NDK or an NDK selected
+with `ANDROID_NDK_HOME`/`ANDROID_NDK_ROOT`. Without that switch, Cargo accepts a
+local archive or an already extracted package but does not configure or build
+Slang. Remote asset digests are cached by their API URL and asset-name key.

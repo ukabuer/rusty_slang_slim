@@ -29,7 +29,7 @@ global-session/session/module/component workflow without adding native worker
 threads.
 
 The optional `native-tests` feature enables an integration test when a local
-native archive or CMake build is available; ordinary source checks do not
+native archive or extracted package is available; ordinary source checks do not
 require a native artifact.
 
 The safe wrapper also includes a runnable multi-target example where the main
@@ -44,29 +44,29 @@ cargo build -p slang-slim --features native-tests --example multi_target_compile
 .\target\debug\examples\multi_target_compile.exe
 ```
 
-The archive's sibling `.zip.sha256` file is checked automatically. Without a
-native archive or source override, ordinary source checks still work. Native
-tests and examples derive the matching GitHub Release URL from the crate
-version and target, then verify the downloaded archive against its sibling
-`.zip.sha256` sidecar. Set a local archive or mirror when the corresponding
-GitHub Release asset is not available yet.
+For published assets, the build script derives the GitHub Release URL from the
+crate version and target, queries the Release API for that asset's SHA-256
+`digest`, and verifies the downloaded archive before extraction. The digest
+metadata is cached with the archive. A local `SLANG_SLIM_NATIVE_ARCHIVE` is hashed
+directly, so no sidecar file is needed. Set `SLANG_SLIM_NATIVE_SHA256` when using
+a custom release mirror that does not expose the GitHub Release API.
 
-When iterating on the native CMake build itself, set
-`SLANG_SLIM_NATIVE_BUILD_DIR` to `build/native/windows-x64` after the Release
-preset has completed. This bypasses archive creation, checksum validation, and
-downloads, and can be used with the same tests and example. See
-[docs/building.md](docs/building.md) for the Android target command.
-
-For the one-command source workflow, set `SLANG_SLIM_FROM_SOURCE=1`; Cargo
-will invoke the matching CMake Release build before compiling the Rust target.
-This is the recommended maintainer workflow when changing the native bridge or
-the pinned Slang source:
+For a one-command maintainer build from the checked-out Slang source, set
+`SLANG_SLIM_FROM_SOURCE=1`. Cargo configures the matching CMake preset when
+needed, builds the Release native target, and links its local libraries directly;
+no archive download or GitHub API query is performed. The source mode takes
+precedence over `SLANG_SLIM_NATIVE_ARCHIVE` and `SLANG_SLIM_NATIVE_DIR`.
+Android source builds additionally accept the bundled
+`build/toolchains/android-ndk-r27d` NDK, or use `ANDROID_NDK_HOME`/
+`ANDROID_NDK_ROOT` when the NDK is installed elsewhere; the Android path is
+currently intended for a Windows host, matching CI.
 
 ```powershell
 $env:SLANG_SLIM_FROM_SOURCE = "1"
 cargo test --workspace --features native-tests -- --nocapture
 cargo build -p slang-slim --features native-tests --example multi_target_compile
 & .\target\debug\examples\multi_target_compile.exe
+Remove-Item Env:SLANG_SLIM_FROM_SOURCE
 ```
 
 See [docs/design.md](docs/design.md) for the frozen v0.1 scope and
