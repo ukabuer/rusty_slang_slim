@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.85.0
@@ -41,7 +41,7 @@ jobs:
     runs-on: windows-2022
     steps:
       - name: Check out pinned Slang submodule
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           submodules: recursive
@@ -122,7 +122,7 @@ jobs:
 
       - name: Upload Windows release asset
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: native-package-windows
           path: |
@@ -136,7 +136,7 @@ jobs:
     runs-on: windows-2022
     steps:
       - name: Check out pinned Slang submodule
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           submodules: recursive
@@ -151,7 +151,7 @@ jobs:
           targets: aarch64-linux-android
 
       - name: Set up Android SDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -245,7 +245,7 @@ jobs:
           }
           "CC_aarch64_linux_android=$clang" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CXX_aarch64_linux_android=$clangxx" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$clang" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$clangxx" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Compile Rust Android native smoke tests
         shell: pwsh
@@ -259,7 +259,7 @@ jobs:
 
       - name: Upload Android release asset
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: native-package-android
           path: |
@@ -280,13 +280,13 @@ jobs:
       contents: write
     steps:
       - name: Download native packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: build/packages
           merge-multiple: true
 
       - name: Publish native packages
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             build/packages/*.zip

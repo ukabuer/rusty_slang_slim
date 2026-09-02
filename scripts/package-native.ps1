@@ -351,7 +351,7 @@ $targetConfig = switch ($Target) {
                 [ordered]@{ name = "cmark-gfm"; source = "slang/external/cmark/src/Release/libcmark-gfm.a"; file = "libcmark-gfm.a" }
             )
             output_library = [ordered]@{ name = "slang-slim"; file = "libslang-slim.a" }
-            runtime_libraries = @("c++_static")
+            runtime_libraries = @("c++_static", "c++abi")
             system_libraries = @("dl", "atomic", "m")
             link_arguments = @("-pthread")
         }

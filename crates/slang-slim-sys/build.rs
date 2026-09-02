@@ -25,6 +25,8 @@ const ENV_NATIVE_SHA256: &str = "SLANG_SLIM_NATIVE_SHA256";
 const ENV_CACHE_DIR: &str = "SLANG_SLIM_CACHE_DIR";
 const ENV_RELEASE_BASE_URL: &str = "SLANG_SLIM_RELEASE_BASE_URL";
 const ENV_DISABLE_DOWNLOAD: &str = "SLANG_SLIM_DISABLE_DOWNLOAD";
+const ENV_ANDROID_NDK_HOME: &str = "ANDROID_NDK_HOME";
+const ENV_ANDROID_NDK_ROOT: &str = "ANDROID_NDK_ROOT";
 const NATIVE_ARCHIVE_PREFIX: &str = "slang-slim-native-v";
 
 type BuildResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -147,7 +149,7 @@ const WINDOWS_SYSTEM_LIBRARIES: &[&str] = &[
 ];
 const WINDOWS_LINK_ARGUMENTS: &[&str] = &[];
 
-const ANDROID_RUNTIME_LIBRARIES: &[&str] = &["c++_static"];
+const ANDROID_RUNTIME_LIBRARIES: &[&str] = &["c++_static", "c++abi"];
 const ANDROID_SYSTEM_LIBRARIES: &[&str] = &["dl", "atomic", "m"];
 const ANDROID_LINK_ARGUMENTS: &[&str] = &["-pthread"];
 
@@ -164,6 +166,8 @@ fn main() {
         ENV_CACHE_DIR,
         ENV_RELEASE_BASE_URL,
         ENV_DISABLE_DOWNLOAD,
+        ENV_ANDROID_NDK_HOME,
+        ENV_ANDROID_NDK_ROOT,
         "CARGO_NET_OFFLINE",
         "CARGO_HOME",
         "CARGO_CFG_TARGET_FEATURE",
@@ -1000,6 +1004,13 @@ fn emit_local_build_link_instructions(native_build_root: &Path, target: &str) ->
     for search_path in search_paths {
         println!("cargo::rustc-link-search=native={}", search_path.display());
     }
+    emit_runtime_link_search_path(
+        target,
+        layout
+            .runtime_libraries
+            .iter()
+            .any(|library| matches!(*library, "c++_static" | "c++abi")),
+    )?;
     for library in layout.libraries {
         println!("cargo::rustc-link-lib=static={}", library.name);
     }
@@ -1030,6 +1041,14 @@ fn emit_link_instructions(native_root: &Path, manifest: &NativeManifest) -> Buil
         return Err(format!("native link directory {} is missing", search_path.display()).into());
     }
     println!("cargo::rustc-link-search=native={}", search_path.display());
+    emit_runtime_link_search_path(
+        &manifest.target,
+        manifest
+            .link
+            .runtime_libraries
+            .iter()
+            .any(|library| matches!(library.as_str(), "c++_static" | "c++abi")),
+    )?;
     for library in &manifest.link.libraries {
         println!("cargo::rustc-link-lib=static={}", library.name);
     }
@@ -1045,6 +1064,62 @@ fn emit_link_instructions(native_root: &Path, manifest: &NativeManifest) -> Buil
     println!("cargo::metadata=native_root={}", native_root.display());
     println!("cargo::rustc-cfg=slang_slim_native_linked");
     Ok(())
+}
+
+fn emit_runtime_link_search_path(target: &str, needs_android_cxx_runtime: bool) -> BuildResult<()> {
+    if target != "aarch64-linux-android" || !needs_android_cxx_runtime {
+        return Ok(());
+    }
+    let library_directory = android_ndk_cxx_library_directory()?;
+    println!(
+        "cargo::rustc-link-search=native={}",
+        library_directory.display()
+    );
+    Ok(())
+}
+
+fn android_ndk_cxx_library_directory() -> BuildResult<PathBuf> {
+    let configured_roots: Vec<PathBuf> = [ENV_ANDROID_NDK_HOME, ENV_ANDROID_NDK_ROOT]
+        .into_iter()
+        .filter_map(|name| env::var_os(name).map(PathBuf::from))
+        .collect();
+    if configured_roots.is_empty() {
+        return Err(format!(
+            "Android native linking requires {ENV_ANDROID_NDK_HOME} or {ENV_ANDROID_NDK_ROOT} to locate libc++_static.a and libc++abi.a"
+        )
+        .into());
+    }
+
+    for ndk_root in configured_roots {
+        if !ndk_root.is_dir() {
+            continue;
+        }
+        let prebuilt_root = ndk_root.join("toolchains/llvm/prebuilt");
+        let mut hosts: Vec<PathBuf> = fs::read_dir(&prebuilt_root)
+            .map_err(|error| {
+                format!(
+                    "failed to inspect Android NDK prebuilt directory {}: {error}",
+                    prebuilt_root.display()
+                )
+            })?
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| path.is_dir())
+            .collect();
+        hosts.sort();
+        for host in hosts {
+            let library_directory = host.join("sysroot/usr/lib/aarch64-linux-android");
+            if library_directory.join("libc++_static.a").is_file()
+                && library_directory.join("libc++abi.a").is_file()
+            {
+                return Ok(library_directory);
+            }
+        }
+    }
+
+    Err(format!(
+        "could not locate libc++_static.a and libc++abi.a below {ENV_ANDROID_NDK_HOME} or {ENV_ANDROID_NDK_ROOT}; install an Android NDK and set one of those variables"
+    )
+    .into())
 }
 
 fn sha256_file(path: &Path) -> BuildResult<String> {

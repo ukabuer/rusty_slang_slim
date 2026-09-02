@@ -8,7 +8,7 @@ GitHub Releases. Cargo consumers do not compile Slang.
 | Build | Baseline |
 | --- | --- |
 | Windows host and target | Visual Studio 2022, MSVC x64, dynamic MSVC runtime (`/MD`) |
-| Android target | NDK r27d (`27.3.13750724`), `arm64-v8a`, API 29, static libc++ |
+| Android target | NDK r27d (`27.3.13750724`), `arm64-v8a`, API 29, static libc++ and libc++abi |
 | CMake | 3.25 or newer |
 | Slang | Git submodule tag `v2026.16.1` |
 
@@ -143,10 +143,13 @@ For Android, build `android-arm64-release`, set the variable to
 `build/native/android-arm64`, and pass `--target aarch64-linux-android` to
 Cargo. This direct-build override uses the known CMake Release library layout,
 is supported for development only, and is intentionally not checksum-validated
-or used for published consumer builds. `SLANG_SLIM_NATIVE_BUILD_DIR` is
-mutually exclusive with `SLANG_SLIM_NATIVE_DIR` and
-`SLANG_SLIM_NATIVE_ARCHIVE`. If `SLANG_SLIM_FROM_SOURCE=1` is set, it takes
-precedence over all native archive/directory overrides.
+or used for published consumer builds. Android Rust links also need
+`ANDROID_NDK_HOME` (or `ANDROID_NDK_ROOT`) so the build script can locate the
+NDK's `libc++_static.a` and `libc++abi.a`. `SLANG_SLIM_NATIVE_BUILD_DIR`
+is mutually exclusive with `SLANG_SLIM_NATIVE_DIR` and
+`SLANG_SLIM_NATIVE_ARCHIVE`. If
+`SLANG_SLIM_FROM_SOURCE=1` is set, it takes precedence over all native
+archive/directory overrides.
 
 The shorter source-build path is preferred when changing Slang or the native
 bridge. Set `SLANG_SLIM_FROM_SOURCE=1` and Cargo will configure the matching
