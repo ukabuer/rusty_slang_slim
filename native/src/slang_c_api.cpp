@@ -468,7 +468,10 @@ SLANG_C_API SlangResult slang_session_load_module_from_source(
         exportRawBlob(diagnostics, outDiagnostics);
         if (!rawModule)
             return SLANG_FAIL;
-        Slang::ComPtr<slang::IModule> module(Slang::INIT_ATTACH, rawModule);
+        // `ISession::loadModuleFromSource` returns a borrowed module pointer:
+        // the session's loaded-module table owns the reference. Take our own
+        // reference before storing it in the opaque handle.
+        Slang::ComPtr<slang::IModule> module(rawModule);
         Slang::ComPtr<slang::IComponentType> component(
             static_cast<slang::IComponentType*>(module.get()));
         auto handle = makeRawComponent(component, session->native.get(), module.get());

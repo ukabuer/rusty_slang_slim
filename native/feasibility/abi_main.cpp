@@ -237,9 +237,9 @@ int main()
     releaseBlob(diagnostics);
     if (SLANG_FAILED(status) || !program)
     {
-        slang_component_type_destroy(module);
         for (auto*& entryPoint : entryPoints)
             slang_component_type_destroy(entryPoint);
+        slang_component_type_destroy(module);
         slang_session_destroy(session);
         slang_file_system_destroy(fileSystem);
         slang_global_session_destroy(global);
@@ -253,9 +253,9 @@ int main()
         printBlob("link diagnostics", diagnostics);
         releaseBlob(diagnostics);
         slang_component_type_destroy(program);
-        slang_component_type_destroy(module);
         for (auto*& entryPoint : entryPoints)
             slang_component_type_destroy(entryPoint);
+        slang_component_type_destroy(module);
         slang_session_destroy(session);
         slang_file_system_destroy(fileSystem);
         slang_global_session_destroy(global);
@@ -273,9 +273,9 @@ int main()
             releaseBlob(diagnostics);
             slang_component_type_destroy(linked);
             slang_component_type_destroy(program);
-            slang_component_type_destroy(module);
             for (auto*& entryPoint : entryPoints)
                 slang_component_type_destroy(entryPoint);
+            slang_component_type_destroy(module);
             slang_session_destroy(session);
             slang_file_system_destroy(fileSystem);
             slang_global_session_destroy(global);
@@ -295,9 +295,9 @@ int main()
             slang_program_layout_destroy(layout);
             slang_component_type_destroy(linked);
             slang_component_type_destroy(program);
-            slang_component_type_destroy(module);
             for (auto*& entryPoint : entryPoints)
                 slang_component_type_destroy(entryPoint);
+            slang_component_type_destroy(module);
             slang_session_destroy(session);
             slang_file_system_destroy(fileSystem);
             slang_global_session_destroy(global);
@@ -323,9 +323,9 @@ int main()
                 slang_program_layout_destroy(layout);
                 slang_component_type_destroy(linked);
                 slang_component_type_destroy(program);
-                slang_component_type_destroy(module);
                 for (auto*& entryPoint : entryPoints)
                     slang_component_type_destroy(entryPoint);
+                slang_component_type_destroy(module);
                 slang_session_destroy(session);
                 slang_file_system_destroy(fileSystem);
                 slang_global_session_destroy(global);
@@ -341,9 +341,9 @@ int main()
                     slang_program_layout_destroy(layout);
                     slang_component_type_destroy(linked);
                     slang_component_type_destroy(program);
-                    slang_component_type_destroy(module);
                     for (auto*& entryPoint : entryPoints)
                         slang_component_type_destroy(entryPoint);
+                    slang_component_type_destroy(module);
                     slang_session_destroy(session);
                     slang_file_system_destroy(fileSystem);
                     slang_global_session_destroy(global);
@@ -361,9 +361,9 @@ int main()
                     slang_program_layout_destroy(layout);
                     slang_component_type_destroy(linked);
                     slang_component_type_destroy(program);
-                    slang_component_type_destroy(module);
                     for (auto*& entryPoint : entryPoints)
                         slang_component_type_destroy(entryPoint);
+                    slang_component_type_destroy(module);
                     slang_session_destroy(session);
                     slang_file_system_destroy(fileSystem);
                     slang_global_session_destroy(global);
@@ -380,9 +380,9 @@ int main()
               << kTargetFormats.size() << " target(s)\n";
     slang_component_type_destroy(linked);
     slang_component_type_destroy(program);
-    slang_component_type_destroy(module);
     for (auto*& entryPoint : entryPoints)
         slang_component_type_destroy(entryPoint);
+    slang_component_type_destroy(module);
     slang_session_destroy(session);
     slang_file_system_destroy(fileSystem);
     slang_global_session_destroy(global);
