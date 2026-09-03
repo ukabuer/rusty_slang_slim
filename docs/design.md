@@ -180,6 +180,12 @@ supported; custom mirrors require an explicit `SLANG_SLIM_NATIVE_SHA256` value b
 the project cannot infer a mirror's Release API digest. No repository-side
 artifact index or checksum sidecar is required.
 
+The `native` feature is enabled by default so a normal consumer dependency is
+ready to link against the published native asset. Source-only checks and
+documentation builds use `--no-default-features`; docs.rs is configured for
+that mode and the build script also recognizes its `DOCS_RS` environment
+variable.
+
 Each native asset is named
 `slang-slim-native-v{version}-{rust-target}.zip`. It contains the public C
 header, the non-LTO static facade and its audited static dependencies, and a

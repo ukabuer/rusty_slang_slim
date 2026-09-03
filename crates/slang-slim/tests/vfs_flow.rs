@@ -1,4 +1,4 @@
-#![cfg(feature = "native-tests")]
+#![cfg(feature = "native")]
 
 use std::sync::{Arc, Mutex};
 

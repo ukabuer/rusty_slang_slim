@@ -14,11 +14,11 @@ release workflow publishes the asset; GitHub records the ZIP's SHA-256 digest.
 ```powershell
 ./scripts/package-native.ps1 `
   -Target x86_64-pc-windows-msvc `
-  -Version 0.1.0
+  -Version 0.1.1
 
 ./scripts/package-native.ps1 `
   -Target aarch64-linux-android `
-  -Version 0.1.0
+  -Version 0.1.1
 ```
 
 Keep `-Version` synchronized with the crate version. The output ZIP uses the
@@ -59,7 +59,7 @@ The following helpers are also safe to run locally:
 ./scripts/native-smoke.ps1 -Target x86_64-pc-windows-msvc
 ./scripts/check-native-size.ps1 `
   -Target x86_64-pc-windows-msvc `
-  -PackagePath build/packages/slang-slim-native-v0.1.0-x86_64-pc-windows-msvc.zip
+  -PackagePath build/packages/slang-slim-native-v0.1.1-x86_64-pc-windows-msvc.zip
 ```
 
 `check-native-size.ps1` enforces the current budgets of 40 MiB compressed /

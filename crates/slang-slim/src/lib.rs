@@ -5,6 +5,10 @@
 //! request target code or reflection. Native handles remain private and are
 //! released when the corresponding Rust value is dropped.
 //!
+//! The `native` feature is enabled by default and selects the matching
+//! prebuilt native asset. Use `--no-default-features` for source-only checks or
+//! documentation builds.
+//!
 //! Slang calls are synchronous. The wrapper does not create worker threads or
 //! add synchronization around the native library; callers must follow Slang's
 //! synchronization requirements when sharing objects between threads. Native

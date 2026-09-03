@@ -140,7 +140,7 @@ where
     }
 }
 
-#[cfg(all(test, feature = "native-tests"))]
+#[cfg(all(test, feature = "native"))]
 mod tests {
     use super::*;
     use std::ffi::CString;

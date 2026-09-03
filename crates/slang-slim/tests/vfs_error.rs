@@ -1,4 +1,4 @@
-#![cfg(feature = "native-tests")]
+#![cfg(feature = "native")]
 
 use slang_slim::{FileSystem, GlobalSession, Session, SessionDesc, TargetDesc, sys};
 

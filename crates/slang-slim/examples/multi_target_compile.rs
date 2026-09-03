@@ -1,4 +1,4 @@
-#[cfg(feature = "native-tests")]
+#[cfg(feature = "native")]
 use std::{
     error::Error,
     sync::{
@@ -7,25 +7,25 @@ use std::{
     },
 };
 
-#[cfg(feature = "native-tests")]
+#[cfg(feature = "native")]
 use slang_slim::{Component, FileSystem, GlobalSession, SessionDesc, TargetDesc, sys};
 
-#[cfg(not(feature = "native-tests"))]
+#[cfg(not(feature = "native"))]
 fn main() {
-    eprintln!("enable the `native-tests` feature to run this example");
+    eprintln!("enable the `native` feature to run this example");
 }
 
-#[cfg(feature = "native-tests")]
+#[cfg(feature = "native")]
 fn main() -> Result<(), Box<dyn Error>> {
     run()
 }
 
-#[cfg(feature = "native-tests")]
+#[cfg(feature = "native")]
 const SHARED_SHADER: &[u8] = br#"
 float4 included_value() { return float4(1.0, 0.75, 0.5, 1.0); }
 "#;
 
-#[cfg(feature = "native-tests")]
+#[cfg(feature = "native")]
 const MAIN_SHADER: &[u8] = br#"
 #include "shared.hlsl"
 
@@ -57,7 +57,7 @@ void compute_main(uint3 dispatchThreadId : SV_DispatchThreadID)
 }
 "#;
 
-#[cfg(feature = "native-tests")]
+#[cfg(feature = "native")]
 fn run() -> Result<(), Box<dyn Error>> {
     let global = GlobalSession::new()?;
 

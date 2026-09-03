@@ -86,13 +86,13 @@ link set from the repository root:
 ```powershell
 ./scripts/package-native.ps1 `
   -Target x86_64-pc-windows-msvc `
-  -Version 0.1.0
+  -Version 0.1.1
 
 $env:ANDROID_NDK_HOME = (Resolve-Path build/toolchains/android-ndk-r27d).Path
 cmake --build --preset android-arm64-release --parallel
 ./scripts/package-native.ps1 `
   -Target aarch64-linux-android `
-  -Version 0.1.0
+  -Version 0.1.1
 ```
 
 Assets are written under `build/packages` by default. The ZIP manifest is the
@@ -108,7 +108,7 @@ Relative paths are resolved from `crates/slang-slim-sys`:
 
 ```powershell
 $env:SLANG_SLIM_NATIVE_ARCHIVE = `
-  "../../build/packages/slang-slim-native-v0.1.0-x86_64-pc-windows-msvc.zip"
+  "../../build/packages/slang-slim-native-v0.1.1-x86_64-pc-windows-msvc.zip"
 cargo test -p slang-slim-sys
 Remove-Item Env:SLANG_SLIM_NATIVE_ARCHIVE
 ```
@@ -131,11 +131,11 @@ For local validation, build and package the native target first, then point Carg
 at the resulting ZIP:
 
 ```powershell
-./scripts/package-native.ps1 -Target x86_64-pc-windows-msvc -Version 0.1.0
+./scripts/package-native.ps1 -Target x86_64-pc-windows-msvc -Version 0.1.1
 $env:SLANG_SLIM_NATIVE_ARCHIVE = `
-  "../../build/packages/slang-slim-native-v0.1.0-x86_64-pc-windows-msvc.zip"
-cargo test --workspace --features native-tests -- --nocapture
-cargo build -p slang-slim --features native-tests --example multi_target_compile
+  "../../build/packages/slang-slim-native-v0.1.1-x86_64-pc-windows-msvc.zip"
+cargo test --workspace -- --nocapture
+cargo build -p slang-slim --example multi_target_compile
 & .\target\debug\examples\multi_target_compile.exe
 Remove-Item Env:SLANG_SLIM_NATIVE_ARCHIVE
 ```
@@ -158,8 +158,8 @@ source path currently assumes a Windows host, matching CI.
 
 ```powershell
 $env:SLANG_SLIM_FROM_SOURCE = "1"
-cargo test --workspace --features native-tests -- --nocapture
-cargo build -p slang-slim --features native-tests --example multi_target_compile
+cargo test --workspace -- --nocapture
+cargo build -p slang-slim --example multi_target_compile
 & .\target\debug\examples\multi_target_compile.exe
 Remove-Item Env:SLANG_SLIM_FROM_SOURCE
 ```
@@ -171,7 +171,7 @@ binary on the host):
 ```powershell
 rustup target add aarch64-linux-android
 $env:SLANG_SLIM_FROM_SOURCE = "1"
-cargo build -p slang-slim --target aarch64-linux-android --features native-tests
+cargo build -p slang-slim --target aarch64-linux-android
 Remove-Item Env:SLANG_SLIM_FROM_SOURCE
 ```
 
@@ -179,9 +179,9 @@ When the source switch is not set, Cargo does not invoke CMake or build Slang;
 it only uses a local archive/directory override or the published native asset.
 
 Any published version with both target archives enables automatic download for the
-Windows and Android targets when the `native` feature is enabled. Builds
-without that feature remain source-only, so ordinary workspace checks do not need
-a native asset. `CARGO_NET_OFFLINE=true` and
+Windows and Android targets because the `native` feature is enabled by default.
+Use `--no-default-features` for source-only workspace checks that should not
+prepare a native asset. `CARGO_NET_OFFLINE=true` and
 `SLANG_SLIM_DISABLE_DOWNLOAD=1` prohibit network fallback; provide a local
 archive, `SLANG_SLIM_NATIVE_SHA256`, or a populated cache in those modes.
 

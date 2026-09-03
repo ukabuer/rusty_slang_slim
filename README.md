@@ -1,73 +1,107 @@
 # slang-slim
 
-`slang-slim` is a capability-trimmed, prebuilt Slang integration for Rust
-applications that compile shader code at runtime.
+`slang-slim` provides Rust bindings for a capability-trimmed, prebuilt [Slang](https://github.com/shader-slang/slang)
+shader compiler. The safe crate follows Slang's normal workflow: create a
+global session, create a compilation session, load a module, compose entry
+points, link, and retrieve target code or reflection.
 
-The initial release has the following tested and distributed matrix:
+The tested release profile is:
 
-- Windows x86_64 MSVC: HLSL Shader Model 6.0 source, SPIR-V 1.3, and MSL 2.3 source.
-- Android ARM64 with `minSdk` 29: SPIR-V 1.3 only.
-- Vertex, fragment, and compute entry points.
-- Multiple entry points in one HLSL translation unit.
-- Target-specific Slang reflection (typed views plus JSON) and virtual
-  file-system support.
+| Platform | Tested outputs | Stages |
+| --- | --- | --- |
+| Windows x86_64 MSVC | HLSL SM 6.0, SPIR-V 1.3, MSL 2.3 source | vertex, fragment, compute |
+| Android ARM64, API 29 | SPIR-V 1.3 | vertex, fragment, compute |
 
-This is a release and validation profile, not a hard compiler allow-list. The
-raw descriptors and safe core wrapper forward Slang target/profile/stage values
-without restricting them to the entries above. The pinned native build still
-omits optional downstream compilers and several upstream API families. See
-[the capability audit](docs/capability-audit.md) for the actual boundary
-between Slang, the native build, and the Rust bridge.
+Multiple entry points can be kept in one source file. The raw API forwards
+Slang target, profile, and stage values without turning this tested matrix into
+a hard compiler allow-list. See the [capability audit](docs/capability-audit.md)
+for the difference between the tested release profile and the underlying Slang
+build.
 
-Consumers will download prebuilt native archives from GitHub Releases. Building Slang from source is a maintainer workflow, not part of a consumer `cargo build`.
+## Installation
 
-The repository contains two layers. `slang-slim-sys` exposes the raw stable C
-ABI with Slang-shaped records and constants. `slang-slim` adds the safe Rust
-object flow, deterministic native-handle cleanup, owned code/diagnostic bytes,
-and a Rust virtual file-system callback. The safe layer keeps the same
-global-session/session/module/component workflow without adding native worker
-threads.
-
-The optional `native-tests` feature enables an integration test when a local
-native archive or extracted package is available; ordinary source checks do not
-require a native artifact.
-
-The safe wrapper also includes a runnable multi-target example where the main
-shader loads another shader through `#include`. It generates HLSL, SPIR-V, and
-MSL on Windows, and SPIR-V only on Android. With a local native archive
-configured, run it with:
-
-```powershell
-$env:SLANG_SLIM_NATIVE_ARCHIVE = `
-  "../../build/packages/slang-slim-native-v0.1.0-x86_64-pc-windows-msvc.zip"
-cargo build -p slang-slim --features native-tests --example multi_target_compile
-.\target\debug\examples\multi_target_compile.exe
+```console
+cargo add slang-slim
 ```
 
-For published assets, the build script derives the GitHub Release URL from the
-crate version and target, queries the Release API for that asset's SHA-256
-`digest`, and verifies the downloaded archive before extraction. The digest
-metadata is cached with the archive. A local `SLANG_SLIM_NATIVE_ARCHIVE` is hashed
-directly, so no sidecar file is needed. Set `SLANG_SLIM_NATIVE_SHA256` when using
-a custom release mirror that does not expose the GitHub Release API.
+The crate requires Rust 1.85 or newer.
 
-For a one-command maintainer build from the checked-out Slang source, set
-`SLANG_SLIM_FROM_SOURCE=1`. Cargo configures the matching CMake preset when
-needed, builds the Release native target, and links its local libraries directly;
-no archive download or GitHub API query is performed. The source mode takes
-precedence over `SLANG_SLIM_NATIVE_ARCHIVE` and `SLANG_SLIM_NATIVE_DIR`.
-Android source builds additionally accept the bundled
-`build/toolchains/android-ndk-r27d` NDK, or use `ANDROID_NDK_HOME`/
-`ANDROID_NDK_ROOT` when the NDK is installed elsewhere; the Android path is
-currently intended for a Windows host, matching CI.
+The default feature selects the prebuilt native asset for the Rust target. It is
+downloaded from the matching GitHub Release during the first build; consumers
+do not need CMake, a C++ compiler, the Android NDK, or the Slang source tree.
+The published native assets currently cover `x86_64-pc-windows-msvc` and
+`aarch64-linux-android`.
 
-```powershell
-$env:SLANG_SLIM_FROM_SOURCE = "1"
-cargo test --workspace --features native-tests -- --nocapture
-cargo build -p slang-slim --features native-tests --example multi_target_compile
-& .\target\debug\examples\multi_target_compile.exe
-Remove-Item Env:SLANG_SLIM_FROM_SOURCE
+For the Slang-shaped raw FFI layer instead:
+
+```console
+cargo add slang-slim-sys
 ```
 
-See [docs/design.md](docs/design.md) for the frozen v0.1 scope and
-[docs/building.md](docs/building.md) for maintainer build baselines.
+The raw layer can also be added without native linking:
+
+```console
+cargo add slang-slim-sys --no-default-features
+```
+
+## Quick start
+
+This example compiles one compute entry point to SPIR-V 1.3 and reads its
+reflection JSON. `Output<T>` also carries warning and informational diagnostics
+returned by Slang.
+
+```rust
+use slang_slim::{GlobalSession, SessionDesc, TargetDesc, sys};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let global = GlobalSession::new()?;
+    let profile = global
+        .find_profile("spirv_1_3")
+        .expect("the native build does not provide spirv_1_3");
+
+    let mut session_desc = SessionDesc::new();
+    session_desc.add_target(TargetDesc::new(sys::SLANG_SPIRV, profile));
+    let session = global.create_session(&session_desc)?;
+
+    let module = session
+        .load_module_from_source(
+            "compute_example",
+            "compute_example.hlsl",
+            br#"[numthreads(1, 1, 1)]
+void compute_main(uint3 dispatchThreadId : SV_DispatchThreadID) {}
+"#,
+        )?
+        .value;
+    let entry_point = module
+        .find_and_check_entry_point("compute_main", sys::SLANG_STAGE_COMPUTE)?
+        .value;
+    let composite = session
+        .create_composite_component_type(&[&entry_point])?
+        .value;
+    let linked = composite.link()?.value;
+
+    let spirv = linked.get_target_code(0)?.value;
+    let reflection = linked.get_layout(0)?.value.to_json_string()?.value;
+    println!("SPIR-V: {} bytes; reflection: {} bytes", spirv.len(), reflection.len());
+    Ok(())
+}
+```
+
+Compilation errors are returned as `Error` values with their Slang status and
+diagnostics. Successful operations may also contain warnings in
+`Output::diagnostics`. To serve `#include` files from memory, implement the
+safe `FileSystem` callback and attach it with `SessionDesc::set_file_system`; a
+complete multi-entry-point include example is in
+[`multi_target_compile.rs`](crates/slang-slim/examples/multi_target_compile.rs).
+
+## Project layout
+
+- `slang-slim-sys` is the raw stable C ABI binding.
+- `slang-slim` is the safe Rust object and virtual-file-system wrapper.
+- The native artifact contains the project C ABI and the trimmed Slang static
+  link set; it is distributed separately from the crates.io packages.
+
+For maintainer build, packaging, and release instructions, see
+[`docs/building.md`](docs/building.md). The API and ownership decisions are in
+[`docs/design.md`](docs/design.md); native-layer notes are in
+[`native/README.md`](native/README.md).

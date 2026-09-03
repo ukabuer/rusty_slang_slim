@@ -32,7 +32,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Check workspace without native assets
-        run: cargo check --workspace --all-targets
+        run: cargo check --workspace --all-targets --no-default-features
 
   native-windows:
     name: Windows x64 native build
@@ -111,8 +111,8 @@ jobs:
           $env:SLANG_SLIM_NATIVE_ARCHIVE = $archive
           $env:SLANG_SLIM_CACHE_DIR = Join-Path (Get-Location) "build/ci-native-cache/windows"
           $env:SLANG_SLIM_DISABLE_DOWNLOAD = "1"
-          cargo test --workspace --features native-tests -- --nocapture
-          cargo build -p slang-slim --features native-tests --example multi_target_compile
+          cargo test --workspace -- --nocapture
+          cargo build -p slang-slim --example multi_target_compile
 
       - name: Run packaged Rust multi-target example
         shell: pwsh
@@ -251,8 +251,8 @@ jobs:
           $env:SLANG_SLIM_NATIVE_ARCHIVE = $archive
           $env:SLANG_SLIM_CACHE_DIR = Join-Path (Get-Location) "build/ci-native-cache/android"
           $env:SLANG_SLIM_DISABLE_DOWNLOAD = "1"
-          cargo test --workspace --target aarch64-linux-android --features native-tests --no-run
-          cargo build -p slang-slim --target aarch64-linux-android --features native-tests --example multi_target_compile
+          cargo test --workspace --target aarch64-linux-android --no-run
+          cargo build -p slang-slim --target aarch64-linux-android --example multi_target_compile
 
       - name: Upload Android release asset
         if: github.ref == 'refs/heads/main'

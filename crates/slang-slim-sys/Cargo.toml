@@ -1,16 +1,21 @@
 [package]
 name = "slang-slim-sys"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
 rust-version.workspace = true
 description = "Raw FFI bindings for the focused slang-slim shader compiler"
+license = "MIT"
+repository = "https://github.com/ukabuer/rusty_slang_slim"
+readme = "../../README.md"
 links = "slang_slim"
 build = "build.rs"
-publish = false
 
 [features]
-default = []
+default = ["native"]
 native = []
+
+[package.metadata.docs.rs]
+no-default-features = true
 
 [lib]
 path = "src/lib.rs"

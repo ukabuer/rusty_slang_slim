@@ -8,6 +8,10 @@
 //! Calls are synchronous on the caller's thread; Slang's own synchronization
 //! requirements apply. A non-negative `SlangResult` is success, and optional
 //! diagnostic blobs may still contain warnings or informational messages.
+//!
+//! The `native` feature is enabled by default and selects the matching
+//! prebuilt native asset. Use `--no-default-features` when only checking the
+//! declarations without linking a native artifact.
 
 #![no_std]
 
