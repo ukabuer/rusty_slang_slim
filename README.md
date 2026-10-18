@@ -51,7 +51,7 @@ reflection JSON. `Output<T>` also carries warning and informational diagnostics
 returned by Slang.
 
 ```rust
-use slang_slim::{GlobalSession, SessionDesc, TargetDesc, sys};
+use slang_slim::{GlobalSession, SessionDesc, TargetDesc, SLANG_SPIRV, SLANG_STAGE_COMPUTE};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let global = GlobalSession::new()?;
@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("the native build does not provide spirv_1_3");
 
     let mut session_desc = SessionDesc::new();
-    session_desc.add_target(TargetDesc::new(sys::SLANG_SPIRV, profile));
+    session_desc.add_target(TargetDesc::new(SLANG_SPIRV, profile));
     let session = global.create_session(&session_desc)?;
 
     let module = session
@@ -73,7 +73,7 @@ void compute_main(uint3 dispatchThreadId : SV_DispatchThreadID) {}
         )?
         .value;
     let entry_point = module
-        .find_and_check_entry_point("compute_main", sys::SLANG_STAGE_COMPUTE)?
+        .find_and_check_entry_point("compute_main", SLANG_STAGE_COMPUTE)?
         .value;
     let composite = session
         .create_composite_component_type(&[&entry_point])?
@@ -93,6 +93,14 @@ diagnostics. Successful operations may also contain warnings in
 safe `FileSystem` callback and attach it with `SessionDesc::set_file_system`; a
 complete multi-entry-point include example is in
 [`multi_target_compile.rs`](crates/slang-slim/examples/multi_target_compile.rs).
+
+Scalar types and constants for targets, stages, compiler options, session
+configuration, status codes, and reflection are re-exported from `slang_slim`
+with their original names and values. For example, import
+`SLANG_MATRIX_LAYOUT_COLUMN_MAJOR`, `COMPILER_OPTION_EMIT_SPIRV_DIRECTLY`,
+`SLANG_E_NOT_FOUND`, or `SLANG_PARAMETER_CATEGORY_UNIFORM` directly from
+`slang_slim`; no separate `slang-slim-sys` dependency is needed. The
+`slang_slim::sys` module remains available for raw FFI access.
 
 ## Project layout
 

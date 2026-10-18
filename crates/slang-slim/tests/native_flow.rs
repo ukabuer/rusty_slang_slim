@@ -1,6 +1,10 @@
 #![cfg(feature = "native")]
 
-use slang_slim::{FileSystem, GlobalSession, SessionDesc, TargetDesc, sys};
+use slang_slim::{
+    FileSystem, GlobalSession, SLANG_E_NOT_FOUND, SLANG_HLSL, SLANG_LAYOUT_RULES_DEFAULT,
+    SLANG_METAL, SLANG_PARAMETER_CATEGORY_UNIFORM, SLANG_SPIRV, SLANG_STAGE_COMPUTE,
+    SLANG_STAGE_FRAGMENT, SLANG_STAGE_VERTEX, SLANG_TYPE_KIND_STRUCT, SessionDesc, TargetDesc,
+};
 
 const SHARED_SOURCE: &[u8] = b"float4 shared_tint() { return float4(1.0, 0.75, 0.5, 1.0); }\n";
 
@@ -52,19 +56,19 @@ fn safe_wrapper_follows_slang_component_flow() -> Result<(), Box<dyn std::error:
         if path.ends_with("shared.hlsl") {
             Ok(SHARED_SOURCE.to_vec())
         } else {
-            Err(sys::SLANG_E_NOT_FOUND)
+            Err(SLANG_E_NOT_FOUND)
         }
     })?;
 
     let session = {
         let mut session_desc = SessionDesc::new();
         #[cfg(not(target_os = "android"))]
-        session_desc.add_target(TargetDesc::new(sys::SLANG_HLSL, hlsl_profile));
+        session_desc.add_target(TargetDesc::new(SLANG_HLSL, hlsl_profile));
 
-        session_desc.add_target(TargetDesc::new(sys::SLANG_SPIRV, spirv_profile));
+        session_desc.add_target(TargetDesc::new(SLANG_SPIRV, spirv_profile));
 
         #[cfg(not(target_os = "android"))]
-        session_desc.add_target(TargetDesc::new(sys::SLANG_METAL, metal_profile));
+        session_desc.add_target(TargetDesc::new(SLANG_METAL, metal_profile));
         session_desc.set_file_system(&file_system);
         global.create_session(&session_desc)?
     };
@@ -79,9 +83,9 @@ fn safe_wrapper_follows_slang_component_flow() -> Result<(), Box<dyn std::error:
     assert_eq!(module.name().as_deref(), Some("safe_flow"));
     assert!(module.file_path().is_some());
 
-    let vertex = module.find_and_check_entry_point("vertex_main", sys::SLANG_STAGE_VERTEX)?;
-    let fragment = module.find_and_check_entry_point("fragment_main", sys::SLANG_STAGE_FRAGMENT)?;
-    let compute = module.find_and_check_entry_point("compute_main", sys::SLANG_STAGE_COMPUTE)?;
+    let vertex = module.find_and_check_entry_point("vertex_main", SLANG_STAGE_VERTEX)?;
+    let fragment = module.find_and_check_entry_point("fragment_main", SLANG_STAGE_FRAGMENT)?;
+    let compute = module.find_and_check_entry_point("compute_main", SLANG_STAGE_COMPUTE)?;
     let composite = session.create_composite_component_type(&[
         &vertex.value,
         &fragment.value,
@@ -109,9 +113,9 @@ fn safe_wrapper_follows_slang_component_flow() -> Result<(), Box<dyn std::error:
         // keep its owner alive through their internal reference count.
         assert_eq!(layout.value.get_entry_point_count(), 3);
         let expected_entries = [
-            ("vertex_main", sys::SLANG_STAGE_VERTEX),
-            ("fragment_main", sys::SLANG_STAGE_FRAGMENT),
-            ("compute_main", sys::SLANG_STAGE_COMPUTE),
+            ("vertex_main", SLANG_STAGE_VERTEX),
+            ("fragment_main", SLANG_STAGE_FRAGMENT),
+            ("compute_main", SLANG_STAGE_COMPUTE),
         ];
         for (name, stage) in expected_entries {
             let entry = layout
@@ -132,7 +136,7 @@ fn safe_wrapper_follows_slang_component_flow() -> Result<(), Box<dyn std::error:
             .value
             .find_type_by_name("VertexOutput")?
             .expect("VertexOutput missing from reflection");
-        assert_eq!(output_type.get_kind(), sys::SLANG_TYPE_KIND_STRUCT);
+        assert_eq!(output_type.get_kind(), SLANG_TYPE_KIND_STRUCT);
         assert_eq!(output_type.get_field_count(), 2);
         assert_eq!(
             output_type
@@ -149,11 +153,11 @@ fn safe_wrapper_follows_slang_component_flow() -> Result<(), Box<dyn std::error:
 
         let output_layout = layout
             .value
-            .get_type_layout(&output_type, sys::SLANG_LAYOUT_RULES_DEFAULT)?
+            .get_type_layout(&output_type, SLANG_LAYOUT_RULES_DEFAULT)?
             .expect("VertexOutput layout missing from reflection");
-        assert_eq!(output_layout.get_kind(), sys::SLANG_TYPE_KIND_STRUCT);
+        assert_eq!(output_layout.get_kind(), SLANG_TYPE_KIND_STRUCT);
         assert_eq!(output_layout.get_field_count(), 2);
-        assert!(output_layout.get_size(sys::SLANG_PARAMETER_CATEGORY_UNIFORM) > 0);
+        assert!(output_layout.get_size(SLANG_PARAMETER_CATEGORY_UNIFORM) > 0);
         let position_layout = output_layout
             .get_field_by_index(0)
             .expect("position layout missing");

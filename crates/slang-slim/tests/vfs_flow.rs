@@ -2,7 +2,9 @@
 
 use std::sync::{Arc, Mutex};
 
-use slang_slim::{FileSystem, GlobalSession, Session, SessionDesc, TargetDesc, sys};
+use slang_slim::{
+    FileSystem, GlobalSession, SLANG_E_NOT_FOUND, SLANG_SPIRV, Session, SessionDesc, TargetDesc,
+};
 
 fn create_spirv_session(file_system: &FileSystem) -> slang_slim::Result<Session> {
     let global = GlobalSession::new()?;
@@ -10,7 +12,7 @@ fn create_spirv_session(file_system: &FileSystem) -> slang_slim::Result<Session>
         .find_profile("spirv_1_3")
         .expect("missing SPIR-V profile");
     let mut session_desc = SessionDesc::new();
-    session_desc.add_target(TargetDesc::new(sys::SLANG_SPIRV, spirv_profile));
+    session_desc.add_target(TargetDesc::new(SLANG_SPIRV, spirv_profile));
     session_desc.set_file_system(file_system);
     global.create_session(&session_desc)
 }
@@ -37,7 +39,7 @@ float4 main_value() { return 1.0.xxxx; }
         if path == "pkg/shared.hlsl" {
             Ok(SHARED_SOURCE.to_vec())
         } else {
-            Err(sys::SLANG_E_NOT_FOUND)
+            Err(SLANG_E_NOT_FOUND)
         }
     })?;
 

@@ -8,7 +8,13 @@ use std::{
 };
 
 #[cfg(feature = "native")]
-use slang_slim::{Component, FileSystem, GlobalSession, SessionDesc, TargetDesc, sys};
+use slang_slim::{
+    Component, FileSystem, GlobalSession, SLANG_E_NOT_FOUND, SLANG_SPIRV, SLANG_STAGE_COMPUTE,
+    SLANG_STAGE_FRAGMENT, SLANG_STAGE_VERTEX, SessionDesc, SlangInt, TargetDesc,
+};
+
+#[cfg(all(feature = "native", not(target_os = "android")))]
+use slang_slim::{SLANG_HLSL, SLANG_METAL};
 
 #[cfg(not(feature = "native"))]
 fn main() {
@@ -66,7 +72,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         let spirv_profile = global
             .find_profile("spirv_1_3")
             .ok_or("the native Slang build does not provide spirv_1_3")?;
-        vec![("SPIR-V 1.3", sys::SLANG_SPIRV, spirv_profile)]
+        vec![("SPIR-V 1.3", SLANG_SPIRV, spirv_profile)]
     };
 
     #[cfg(not(target_os = "android"))]
@@ -81,9 +87,9 @@ fn run() -> Result<(), Box<dyn Error>> {
             .find_profile("metallib_2_3")
             .ok_or("the native Slang build does not provide metallib_2_3")?;
         vec![
-            ("HLSL SM 6.0", sys::SLANG_HLSL, hlsl_profile),
-            ("SPIR-V 1.3", sys::SLANG_SPIRV, spirv_profile),
-            ("MSL 2.3 source", sys::SLANG_METAL, metal_profile),
+            ("HLSL SM 6.0", SLANG_HLSL, hlsl_profile),
+            ("SPIR-V 1.3", SLANG_SPIRV, spirv_profile),
+            ("MSL 2.3 source", SLANG_METAL, metal_profile),
         ]
     };
 
@@ -94,7 +100,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             include_requests_for_callback.fetch_add(1, Ordering::Relaxed);
             Ok(SHARED_SHADER.to_vec())
         } else {
-            Err(sys::SLANG_E_NOT_FOUND)
+            Err(SLANG_E_NOT_FOUND)
         }
     })?;
 
@@ -121,13 +127,13 @@ fn run() -> Result<(), Box<dyn Error>> {
     assert_eq!(module.name().as_deref(), Some("multi_target_compile"));
     assert!(module.file_path().is_some());
     let vertex = module
-        .find_and_check_entry_point("vertex_main", sys::SLANG_STAGE_VERTEX)?
+        .find_and_check_entry_point("vertex_main", SLANG_STAGE_VERTEX)?
         .value;
     let fragment = module
-        .find_and_check_entry_point("fragment_main", sys::SLANG_STAGE_FRAGMENT)?
+        .find_and_check_entry_point("fragment_main", SLANG_STAGE_FRAGMENT)?
         .value;
     let compute = module
-        .find_and_check_entry_point("compute_main", sys::SLANG_STAGE_COMPUTE)?
+        .find_and_check_entry_point("compute_main", SLANG_STAGE_COMPUTE)?
         .value;
     let entry_points = [&vertex, &fragment, &compute];
     let components: Vec<&dyn Component> = entry_points
@@ -138,7 +144,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let linked = composite.link()?.value;
     assert!(include_requests.load(Ordering::Relaxed) > 0);
     for (target_index, (name, _, _)) in targets.iter().enumerate() {
-        let target_index = sys::SlangInt::try_from(target_index)?;
+        let target_index = SlangInt::try_from(target_index)?;
         let code = linked.get_target_code(target_index)?;
         if code.value.is_empty() {
             return Err(format!("{name} returned no target code").into());
@@ -160,12 +166,12 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let spirv_target_index = targets
         .iter()
-        .position(|(_, format, _)| *format == sys::SLANG_SPIRV)
+        .position(|(_, format, _)| *format == SLANG_SPIRV)
         .ok_or("no SPIR-V target configured")?;
     for (entry_point_index, _) in entry_points.iter().enumerate() {
         let entry_point_code = linked.get_entry_point_code(
-            sys::SlangInt::try_from(entry_point_index)?,
-            sys::SlangInt::try_from(spirv_target_index)?,
+            SlangInt::try_from(entry_point_index)?,
+            SlangInt::try_from(spirv_target_index)?,
         )?;
         if entry_point_code.value.is_empty() {
             return Err("SPIR-V returned no entry-point code".into());
