@@ -53,30 +53,36 @@ regression tests with Cargo on `PATH` and
 `repackage-native.py` verifies the previous package's payload sizes/checksums,
 preserves library/header bytes and link metadata, updates its package version,
 and records the original `binary_source_version`. It never invokes a compiler.
+It shares manifest and archive layout checks with `check-native-size.py`.
 
 `.github/workflows/native.yml` uses that plan to build, repackage, or reuse
 published archives. An exact archive cache avoids recompiling the same native
-inputs for a main build and its tag. All paths run Rust integration/link checks
-and archive checks. Manual `force_build` bypasses reuse and caching.
+inputs for a main build and its tag. Native jobs run Rust integration or link
+checks and archive checks. Pure documentation changes skip those jobs, and
+manual `force_build` bypasses reuse and caching.
 
-The Android job installs NDK `27.3.13750724` and Ninja on a Windows runner so it
-uses the same host-generator flow as the documented local build. Android is a
-cross-link smoke test in CI; execution still requires a device or emulator.
+`build-native.ps1` initializes and verifies the Slang submodule, then builds the
+ABI probe and its Release library dependencies. The Windows runner and Android
+NDK revision come from `native/ci-toolchains.json`. The Android job uses Ninja
+for source builds and the NDK for Rust cross-linking. Executing the Android
+binaries requires a device or emulator.
 
 The following helpers are also safe to run locally:
 
 ```powershell
 ./scripts/verify-slang-submodule.ps1
 ./scripts/native-smoke.ps1 -Target x86_64-pc-windows-msvc
-./scripts/check-native-size.ps1 `
-  -Target x86_64-pc-windows-msvc `
-  -PackagePath build/packages/slang-slim-native-v0.1.1-x86_64-pc-windows-msvc.zip
+python scripts/check-native-size.py `
+  --target x86_64-pc-windows-msvc `
+  --package-path build/packages/slang-slim-native-v0.1.1-x86_64-pc-windows-msvc.zip
 ```
 
-`check-native-size.ps1` enforces the current budgets of 40 MiB compressed /
+`check-native-size.py` enforces the current budgets of 40 MiB compressed /
 150 MiB uncompressed for Windows and 30 MiB compressed / 90 MiB uncompressed
-for Android. A deliberate size increase should change those budgets in the
-same review as the build-profile change.
+for Android. Use `--max-archive-mib` or `--max-payload-mib` to override a budget
+for a local check. A deliberate size increase should change those budgets in
+the same review as the build-profile change. CI runs both Python archive tools
+with Python 3.12.
 
 Every release uses `v<version>`. Update the inherited package version and the
 sys dependency requirement in the root `Cargo.toml` and refresh `Cargo.lock`.
@@ -84,6 +90,6 @@ The native package uses the same version when repackaging existing binaries.
 Each tag validates both targets through the reusable native workflow, then
 publishes native assets, `slang-slim-sys`, and `slang-slim` in order. The release
 workflow uses crates.io Trusted Publishing and skips published versions.
-Workflow artifacts are retained for 30 days. See
+Tags that need to publish native packages retain the ZIP artifacts for 30 days. See
 [`docs/building.md`](../docs/building.md#continuous-integration-and-releases)
 for version rules and the required one-time Trusted Publisher setup.

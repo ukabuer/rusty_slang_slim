@@ -2,16 +2,21 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 
+SCRIPTS = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(
-    "repackage_native", Path(__file__).resolve().parents[1] / "repackage-native.py"
+    "repackage_native", SCRIPTS / "repackage-native.py"
 )
 repackager = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(repackager)
+with patch.object(sys, "path", [str(SCRIPTS), *sys.path]):
+    SPEC.loader.exec_module(repackager)
 
 
 class NativeRepackagingTests(unittest.TestCase):
@@ -31,14 +36,21 @@ class NativeRepackagingTests(unittest.TestCase):
         }
         self.write_source()
 
-    def write_source(self, payload=None):
-        with zipfile.ZipFile(self.source, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    def write_source(self, payload=None, compression=zipfile.ZIP_DEFLATED):
+        with zipfile.ZipFile(self.source, "w", compression=compression) as archive:
             for name, data in (payload or self.payload).items():
                 archive.writestr(name, data)
             archive.writestr("manifest.json", json.dumps(self.manifest))
 
     def repackage(self, source_version="0.1.1", target="x86_64-pc-windows-msvc"):
         repackager.repackage(self.source, self.output, source_version, "0.1.2", target)
+
+    def check_size(self, *args):
+        return subprocess.run(
+            [sys.executable, "-B", str(SCRIPTS / "check-native-size.py"),
+             "--target", self.manifest["target"], "--package-path", str(self.source), *args],
+            cwd=self.root, capture_output=True, text=True,
+        )
 
     def test_native_payload_and_its_checksums_remain_identical(self):
         original_archive = self.source.read_bytes()
@@ -60,7 +72,10 @@ class NativeRepackagingTests(unittest.TestCase):
             self.assertEqual(json.loads(archive.read("manifest.json"))["binary_source_version"], "0.1.1")
 
     def test_corrupt_payload_does_not_replace_an_existing_output(self):
-        self.write_source(dict(self.payload, **{"lib/slang-slim.lib": b"corrupt"}))
+        library_path = "lib/slang-slim.lib"
+        payload = dict(self.payload)
+        payload[library_path] = b"x" * len(payload[library_path])
+        self.write_source(payload)
         self.output.write_bytes(b"existing archive")
         with self.assertRaisesRegex(ValueError, "checksum or size mismatch"):
             self.repackage()
@@ -89,6 +104,38 @@ class NativeRepackagingTests(unittest.TestCase):
     def test_input_cannot_be_overwritten(self):
         with self.assertRaisesRegex(ValueError, "must differ"):
             repackager.repackage(self.source, self.source, "0.1.1", "0.1.2", "x86_64-pc-windows-msvc")
+
+    def test_size_check_reports_the_default_budgets_and_archive_checksum(self):
+        result = self.check_size("--max-archive-mib", "0", "--max-payload-mib", "-1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("MiB/40 MiB", result.stdout)
+        self.assertIn("MiB/150 MiB", result.stdout)
+        self.assertIn(hashlib.sha256(self.source.read_bytes()).hexdigest(), result.stdout)
+
+    def test_size_check_enforces_both_budget_overrides(self):
+        data = b"x" * (1024 * 1024 + 1)
+        self.payload["lib/slang-slim.lib"] = data
+        self.manifest["files"][0].update(size=len(data), sha256=hashlib.sha256(data).hexdigest())
+        self.write_source(compression=zipfile.ZIP_STORED)
+        for kind in ("archive", "payload"):
+            with self.subTest(budget=kind):
+                result = self.check_size(f"--max-{kind}-mib", "1")
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(f"above the 1 MiB {kind} budget", result.stderr)
+
+    def test_both_archive_tools_reject_an_extra_static_library(self):
+        extra_path = "lib/extra.lib"
+        extra_data = b"unexpected extra static library"
+        self.payload[extra_path] = extra_data
+        self.manifest["files"].append({
+            "path": extra_path, "size": len(extra_data), "sha256": hashlib.sha256(extra_data).hexdigest(),
+        })
+        self.write_source()
+        with self.assertRaisesRegex(ValueError, "exactly one static library"):
+            self.repackage()
+        result = self.check_size()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("exactly one static library", result.stderr)
 
 
 if __name__ == "__main__":

@@ -30,16 +30,20 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: native-ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  SLANG_SLIM_NDK_VERSION: 27.3.13750724
 
 jobs:
   plan:
     name: Validate versions and plan native artifacts
     runs-on: ubuntu-24.04
     outputs:
+      run_native: ${{ steps.plan.outputs.run_native }}
       build_native: ${{ steps.plan.outputs.build_native }}
       native_version: ${{ steps.plan.outputs.native_version }}
       source_version: ${{ steps.plan.outputs.source_version }}
@@ -47,6 +51,8 @@ jobs:
       publish_native: ${{ steps.plan.outputs.publish_native }}
       native_source_key: ${{ steps.plan.outputs.native_source_key }}
       force_build: ${{ steps.plan.outputs.force_build }}
+      windows_runner: ${{ steps.toolchains.outputs.windows_runner }}
+      android_ndk_version: ${{ steps.toolchains.outputs.android_ndk_version }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -60,15 +66,25 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           FORCE_BUILD: ${{ inputs.force_build && 'true' || 'false' }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           args=()
           if [[ -n "$RELEASE_TAG" ]]; then
             args+=(--tag "$RELEASE_TAG")
           fi
+          if [[ -n "$BASE_SHA" ]]; then
+            args+=(--base "$BASE_SHA")
+          fi
           if [[ "$FORCE_BUILD" == "true" ]]; then
             args+=(--force-build)
           fi
           python3 scripts/plan-release.py "${args[@]}"
+
+      - name: Read native toolchains
+        id: toolchains
+        run: |
+          jq -er '"windows_runner=\(.windows_runner)", "android_ndk_version=\(.android_ndk_version)"' \
+            native/ci-toolchains.json >> "$GITHUB_OUTPUT"
 
   rust-check:
     name: Rust checks
@@ -93,13 +109,13 @@ jobs:
 
   native-windows:
     needs: plan
+    if: needs.plan.outputs.run_native == 'true'
     name: Windows x64 native build
-    runs-on: windows-2022
+    runs-on: ${{ needs.plan.outputs.windows_runner }}
+    env:
+      SLANG_SLIM_VERSION: ${{ needs.plan.outputs.native_version }}
     steps:
-      - name: Check out pinned Slang submodule
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v7
 
       - name: Restore a matching native build
         id: native-cache
@@ -107,49 +123,25 @@ jobs:
         uses: actions/cache@v5
         with:
           path: build/packages/slang-slim-native-v${{ needs.plan.outputs.native_version }}-x86_64-pc-windows-msvc.zip
-          key: native-${{ needs.plan.outputs.native_version }}-x86_64-pc-windows-msvc-${{ needs.plan.outputs.native_source_key }}-${{ hashFiles('scripts/plan-release.py', 'scripts/repackage-native.py') }}
-
-      - name: Initialize Slang source for compilation
-        if: needs.plan.outputs.build_native == 'true' && steps.native-cache.outputs.cache-hit != 'true'
-        run: git submodule update --init --recursive
-
-      - name: Verify Slang revision
-        if: needs.plan.outputs.build_native == 'true' && steps.native-cache.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: ./scripts/verify-slang-submodule.ps1
+          key: native-${{ needs.plan.outputs.native_version }}-x86_64-pc-windows-msvc-${{ needs.plan.outputs.native_source_key }}${{ needs.plan.outputs.native_action == 'repackage' && format('-from-{0}-{1}', needs.plan.outputs.source_version, hashFiles('scripts/repackage-native.py', 'scripts/native_archive.py')) || '' }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.85.0
 
-      - name: Resolve native package version
-        shell: pwsh
-        env:
-          NATIVE_VERSION: ${{ needs.plan.outputs.native_version }}
-        run: |
-          "SLANG_SLIM_VERSION=$env:NATIVE_VERSION" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Set up Python for native archive tools
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
 
-      - name: Configure Windows native build
+      - name: Build Windows release libraries and ABI probe
         if: needs.plan.outputs.build_native == 'true' && steps.native-cache.outputs.cache-hit != 'true'
-        working-directory: native
         shell: pwsh
-        run: cmake --preset windows-x64 --fresh
-
-      - name: Build Windows ABI smoke binary
-        if: needs.plan.outputs.build_native == 'true' && steps.native-cache.outputs.cache-hit != 'true'
-        working-directory: native
-        shell: pwsh
-        run: cmake --build --preset windows-x64-abi --parallel 2
+        run: ./scripts/build-native.ps1 -Target x86_64-pc-windows-msvc
 
       - name: Run Windows native smoke test
         if: needs.plan.outputs.build_native == 'true' && steps.native-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: ./scripts/native-smoke.ps1 -Target x86_64-pc-windows-msvc
-
-      - name: Build Windows release libraries
-        if: needs.plan.outputs.build_native == 'true' && steps.native-cache.outputs.cache-hit != 'true'
-        working-directory: native
-        shell: pwsh
-        run: cmake --build --preset windows-x64-release --parallel 2
 
       - name: Package Windows release asset
         if: needs.plan.outputs.build_native == 'true' && steps.native-cache.outputs.cache-hit != 'true'
@@ -159,12 +151,6 @@ jobs:
             -Target x86_64-pc-windows-msvc `
             -Version $env:SLANG_SLIM_VERSION `
             -OutputDirectory build/packages
-
-      - name: Set up Python for native repackaging
-        if: needs.plan.outputs.native_action == 'repackage' && steps.native-cache.outputs.cache-hit != 'true'
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
 
       - name: Reuse or repackage published Windows native binaries
         if: needs.plan.outputs.build_native != 'true' && steps.native-cache.outputs.cache-hit != 'true'
@@ -192,10 +178,10 @@ jobs:
 
       - name: Check Windows package size and manifest
         shell: pwsh
-        run: |
-          ./scripts/check-native-size.ps1 `
-            -Target x86_64-pc-windows-msvc `
-            -PackagePath "build/packages/slang-slim-native-v$env:SLANG_SLIM_VERSION-x86_64-pc-windows-msvc.zip"
+        run: >-
+          python scripts/check-native-size.py
+          --target x86_64-pc-windows-msvc
+          --package-path "build/packages/slang-slim-native-v$env:SLANG_SLIM_VERSION-x86_64-pc-windows-msvc.zip"
 
       - name: Run Rust native smoke tests through packaged archive
         shell: pwsh
@@ -205,15 +191,13 @@ jobs:
           $env:SLANG_SLIM_CACHE_DIR = Join-Path (Get-Location) "build/ci-native-cache/windows"
           $env:SLANG_SLIM_DISABLE_DOWNLOAD = "1"
           cargo test --workspace --locked -- --nocapture
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo build -p slang-slim --locked --example multi_target_compile
 
       - name: Run packaged Rust multi-target example
         shell: pwsh
         run: .\target\debug\examples\multi_target_compile.exe
 
       - name: Upload Windows release asset
-        if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
+        if: inputs.release_tag != '' && needs.plan.outputs.publish_native == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: native-package-windows
@@ -224,13 +208,13 @@ jobs:
 
   native-android:
     needs: plan
+    if: needs.plan.outputs.run_native == 'true'
     name: Android ARM64 native build
-    runs-on: windows-2022
+    runs-on: ${{ needs.plan.outputs.windows_runner }}
+    env:
+      SLANG_SLIM_VERSION: ${{ needs.plan.outputs.native_version }}
     steps:
-      - name: Check out pinned Slang submodule
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v7
 
       - name: Restore a matching native build
         id: native-cache
@@ -238,21 +222,17 @@ jobs:
         uses: actions/cache@v5
         with:
           path: build/packages/slang-slim-native-v${{ needs.plan.outputs.native_version }}-aarch64-linux-android.zip
-          key: native-${{ needs.plan.outputs.native_version }}-aarch64-linux-android-${{ needs.plan.outputs.native_source_key }}-${{ hashFiles('scripts/plan-release.py', 'scripts/repackage-native.py') }}
-
-      - name: Initialize Slang source for compilation
-        if: needs.plan.outputs.build_native == 'true' && steps.native-cache.outputs.cache-hit != 'true'
-        run: git submodule update --init --recursive
-
-      - name: Verify Slang revision
-        if: needs.plan.outputs.build_native == 'true' && steps.native-cache.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: ./scripts/verify-slang-submodule.ps1
+          key: native-${{ needs.plan.outputs.native_version }}-aarch64-linux-android-${{ needs.plan.outputs.native_source_key }}${{ needs.plan.outputs.native_action == 'repackage' && format('-from-{0}-{1}', needs.plan.outputs.source_version, hashFiles('scripts/repackage-native.py', 'scripts/native_archive.py')) || '' }}
 
       - name: Install Rust and Android target
         uses: dtolnay/rust-toolchain@1.85.0
         with:
           targets: aarch64-linux-android
+
+      - name: Set up Python for native archive tools
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
 
       - name: Set up Android SDK
         uses: actions/setup-java@v5
@@ -263,13 +243,13 @@ jobs:
       - name: Install Android SDK command-line tools
         uses: android-actions/setup-android@v4
 
-      - name: Install pinned Android NDK and Ninja
+      - name: Install pinned Android NDK
+        env:
+          SLANG_SLIM_NDK_VERSION: ${{ needs.plan.outputs.android_ndk_version }}
         shell: pwsh
         run: |
           sdkmanager --install "ndk;$env:SLANG_SLIM_NDK_VERSION"
-          if (-not (Get-Command ninja.exe -ErrorAction SilentlyContinue)) {
-              choco install ninja --yes --no-progress
-          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $sdkRoot = $env:ANDROID_HOME
           if ([string]::IsNullOrWhiteSpace($sdkRoot)) {
               $sdkRoot = $env:ANDROID_SDK_ROOT
@@ -283,29 +263,18 @@ jobs:
           }
           "ANDROID_NDK_HOME=$ndk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Resolve native package version
+      - name: Install Ninja for Android source build
+        if: needs.plan.outputs.build_native == 'true' && steps.native-cache.outputs.cache-hit != 'true'
         shell: pwsh
-        env:
-          NATIVE_VERSION: ${{ needs.plan.outputs.native_version }}
         run: |
-          "SLANG_SLIM_VERSION=$env:NATIVE_VERSION" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          if (-not (Get-Command ninja.exe -ErrorAction SilentlyContinue)) {
+              choco install ninja --yes --no-progress
+          }
 
-      - name: Bootstrap Android host generators
+      - name: Build Android release libraries and ABI probe
         if: needs.plan.outputs.build_native == 'true' && steps.native-cache.outputs.cache-hit != 'true'
         shell: pwsh
-        run: ./scripts/bootstrap-android.ps1 -AndroidNdkHome $env:ANDROID_NDK_HOME
-
-      - name: Build Android release libraries
-        if: needs.plan.outputs.build_native == 'true' && steps.native-cache.outputs.cache-hit != 'true'
-        working-directory: native
-        shell: pwsh
-        run: cmake --build --preset android-arm64-release --parallel 2
-
-      - name: Build Android ABI smoke binary
-        if: needs.plan.outputs.build_native == 'true' && steps.native-cache.outputs.cache-hit != 'true'
-        working-directory: native
-        shell: pwsh
-        run: cmake --build --preset android-arm64-abi --parallel 2
+        run: ./scripts/build-native.ps1 -Target aarch64-linux-android
 
       - name: Run Android native link smoke test
         if: needs.plan.outputs.build_native == 'true' && steps.native-cache.outputs.cache-hit != 'true'
@@ -320,12 +289,6 @@ jobs:
             -Target aarch64-linux-android `
             -Version $env:SLANG_SLIM_VERSION `
             -OutputDirectory build/packages
-
-      - name: Set up Python for native repackaging
-        if: needs.plan.outputs.native_action == 'repackage' && steps.native-cache.outputs.cache-hit != 'true'
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
 
       - name: Reuse or repackage published Android native binaries
         if: needs.plan.outputs.build_native != 'true' && steps.native-cache.outputs.cache-hit != 'true'
@@ -353,10 +316,10 @@ jobs:
 
       - name: Check Android package size and manifest
         shell: pwsh
-        run: |
-          ./scripts/check-native-size.ps1 `
-            -Target aarch64-linux-android `
-            -PackagePath "build/packages/slang-slim-native-v$env:SLANG_SLIM_VERSION-aarch64-linux-android.zip"
+        run: >-
+          python scripts/check-native-size.py
+          --target aarch64-linux-android
+          --package-path "build/packages/slang-slim-native-v$env:SLANG_SLIM_VERSION-aarch64-linux-android.zip"
 
       - name: Configure Android Rust linker
         shell: pwsh
@@ -374,7 +337,7 @@ jobs:
           "CXX_aarch64_linux_android=$clangxx" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$clangxx" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Compile Rust Android native smoke tests
+      - name: Link Rust Android tests and example
         shell: pwsh
         run: |
           $archive = (Resolve-Path "build/packages/slang-slim-native-v$env:SLANG_SLIM_VERSION-aarch64-linux-android.zip").Path
@@ -382,11 +345,9 @@ jobs:
           $env:SLANG_SLIM_CACHE_DIR = Join-Path (Get-Location) "build/ci-native-cache/android"
           $env:SLANG_SLIM_DISABLE_DOWNLOAD = "1"
           cargo test --workspace --locked --target aarch64-linux-android --no-run
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo build -p slang-slim --locked --target aarch64-linux-android --example multi_target_compile
 
       - name: Upload Android release asset
-        if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
+        if: inputs.release_tag != '' && needs.plan.outputs.publish_native == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: native-package-android

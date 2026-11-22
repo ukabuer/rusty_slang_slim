@@ -11,7 +11,8 @@ $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $nativeSource = Join-Path $repositoryRoot "native"
 $windowsBuild = Join-Path $repositoryRoot "build/native/windows-x64"
 $hostTools = Join-Path $repositoryRoot "build/native/host-tools"
-$pinnedNdkRevision = "27.3.13750724"
+$toolchains = Get-Content -LiteralPath (Join-Path $nativeSource "ci-toolchains.json") -Raw | ConvertFrom-Json
+$pinnedNdkRevision = $toolchains.android_ndk_version
 
 function Invoke-CheckedCMake {
     param(

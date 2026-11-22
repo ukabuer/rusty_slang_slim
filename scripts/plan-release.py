@@ -15,18 +15,22 @@ CRATES = ("slang-slim-sys", "slang-slim")
 TARGETS = ("x86_64-pc-windows-msvc", "aarch64-linux-android")
 NATIVE_INPUTS = (
     ".gitmodules",
-    ".github/workflows/native.yml",
     "third_party/slang",
     "native/CMakeLists.txt",
     "native/CMakePresets.json",
+    "native/ci-toolchains.json",
     "native/cmake",
     "native/include",
     "native/src",
-    "native/feasibility",
+    # The ABI probe must be rebuilt and checked when its source or smoke check changes.
+    "native/feasibility/abi_main.cpp",
+    "scripts/build-native.ps1",
+    "scripts/native-smoke.ps1",
     "scripts/package-native.ps1",
     "scripts/bootstrap-android.ps1",
     "scripts/verify-slang-submodule.ps1",
 )
+NON_DOCUMENTATION_PATHS = (".", ":(exclude,glob)docs/**", ":(exclude,glob)**/README.md")
 VERSION_PATTERN = r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
 
 
@@ -77,13 +81,14 @@ def crate_needs_publish(crate, version, read_json=get_json):
 
 def changed_since(root, reference, paths):
     resolved = subprocess.run(
-        ["git", "rev-parse", "--verify", f"{reference}^{{commit}}"],
+        ["git", "rev-parse", "--verify", "--end-of-options", f"{reference}^{{commit}}"],
         cwd=root, capture_output=True, text=True,
     )
     if resolved.returncode:
         return None
     result = subprocess.run(
-        ["git", "diff", "--quiet", "--ignore-submodules=none", reference, "HEAD", "--", *paths], cwd=root,
+        ["git", "diff", "--quiet", "--no-renames", "--ignore-submodules=none",
+         resolved.stdout.strip(), "HEAD", "--", *paths], cwd=root,
     )
     if result.returncode not in (0, 1):
         raise RuntimeError(f"Cannot compare native inputs against {reference}")
@@ -160,14 +165,18 @@ def native_source_key(root):
 
 
 def plan(root, repository, tag=None, force=False, read_json=get_json,
-         compare=changed_since, ancestor=is_ancestor):
+         compare=changed_since, ancestor=is_ancestor, base=None):
     version = workspace_version(root, tag)
+    if base and not tag and not force and compare(root, base, NON_DOCUMENTATION_PATHS) is False:
+        return {"run_native": False, "reason": "Only documentation changed"}
+
     release = read_json(f"https://api.github.com/repos/{repository}/releases/tags/v{version}")
     source_version = version if complete_native_release(version, release) else previous_native_version(
         root, repository, version, read_json, ancestor
     )
     changed = compare(root, f"v{source_version}", NATIVE_INPUTS) if source_version else None
     result = native_decision(version, release, source_version, changed, force)
+    result["run_native"] = True
     result["native_source_key"] = native_source_key(root)
     return result
 
@@ -176,6 +185,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY"))
     parser.add_argument("--tag")
+    parser.add_argument("--base", help="Skip native validation for documentation-only changes since this commit")
     parser.add_argument("--check-crate", choices=CRATES, help="Check crates.io for this crate at --tag")
     parser.add_argument("--force-build", action="store_true")
     parser.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT"))
@@ -189,7 +199,7 @@ def main():
             parser.error("--repository must be an owner/repository pair")
         root = Path(__file__).resolve().parent.parent
         try:
-            result = plan(root, args.repository, args.tag, args.force_build)
+            result = plan(root, args.repository, args.tag, args.force_build, base=args.base)
         except ValueError as error:
             parser.exit(1, f"error: {error}\n")
     print(json.dumps(result, indent=2))

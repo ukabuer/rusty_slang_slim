@@ -1,5 +1,6 @@
 import importlib.util
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -25,9 +26,6 @@ class ReleasePlanningTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        key_patch = patch.object(planner, 'native_source_key', return_value='test-native-inputs')
-        key_patch.start()
-        self.addCleanup(key_patch.stop)
         self.write_versions('0.1.2')
 
     def write_versions(self, version, *, safe_version=None, sys_requirement=None):
@@ -58,11 +56,17 @@ class ReleasePlanningTests(unittest.TestCase):
             return {'version': {'num': '0.1.1'}}
         return None
 
-    def plan(self, tag=None, compare=None, read_json=None, ancestor=None):
-        return planner.plan(self.root, 'owner/repository', tag,
-                            read_json=read_json or self.read_metadata,
-                            compare=compare or (lambda *args: False),
-                            ancestor=ancestor or (lambda *args: True))
+    def plan(self, tag=None, compare=None, read_json=None, ancestor=None, base=None, force=False):
+        with patch.object(planner, 'native_source_key', return_value='test-native-inputs'):
+            return planner.plan(self.root, 'owner/repository', tag, force=force,
+                                read_json=read_json or self.read_metadata,
+                                compare=compare or (lambda *args: False),
+                                ancestor=ancestor or (lambda *args: True), base=base)
+
+    def commit(self, message):
+        subprocess.run(['git', 'add', '--all'], cwd=self.root, check=True)
+        subprocess.run(['git', '-c', 'user.name=Release tests', '-c', 'user.email=tests@example.invalid',
+                        'commit', '--quiet', '--no-gpg-sign', '-m', message], cwd=self.root, check=True)
 
     def test_rust_only_release_repackages_old_binaries_without_compilation(self):
         result = self.plan('v0.1.2')
@@ -178,6 +182,54 @@ class ReleasePlanningTests(unittest.TestCase):
         self.assertFalse(planner.changed_since(root, 'HEAD', planner.NATIVE_INPUTS))
         self.assertTrue(planner.is_ancestor(root, 'HEAD'))
         self.assertIsNone(planner.changed_since(root, 'refs/tags/does-not-exist-for-release-test', planner.NATIVE_INPUTS))
+
+    def test_documentation_changes_skip_native_jobs_without_checking_releases(self):
+        subprocess.run(['git', 'init', '--quiet'], cwd=self.root, check=True)
+        source = self.root / 'crates' / 'slang-slim' / 'src' / 'unused.rs'
+        source.write_text('// test source\n', encoding='utf-8')
+        self.commit('Initial sources')
+        (self.root / 'README.md').write_text('Updated usage\n', encoding='utf-8')
+        docs = self.root / 'docs'
+        docs.mkdir()
+        (docs / 'building.md').write_text('Updated instructions\n', encoding='utf-8')
+        self.commit('Documentation changes')
+
+        def no_network(url):
+            raise AssertionError('Documentation-only changes must not look up releases')
+
+        self.assertFalse(self.plan(base='HEAD^', compare=planner.changed_since,
+                                   read_json=no_network)['run_native'])
+        self.assertTrue(self.plan('v0.1.2', base='HEAD^', compare=planner.changed_since)['run_native'])
+        self.assertTrue(self.plan(base='HEAD^', force=True, compare=planner.changed_since)['run_native'])
+        self.assertTrue(self.plan(base='missing-base', compare=planner.changed_since)['run_native'])
+
+        source.rename(docs / 'removed-source.md')
+        self.commit('Move source into documentation')
+        self.assertTrue(self.plan(base='HEAD^', compare=planner.changed_since)['run_native'])
+
+    def test_workflow_and_maintainer_probe_changes_preserve_native_cache(self):
+        subprocess.run(['git', 'init', '--quiet'], cwd=self.root, check=True)
+        self.commit('Initial sources')
+        baseline_key = planner.native_source_key(self.root)
+        for relative_path in ('.github/workflows/native.yml', 'native/feasibility/main.cpp'):
+            path = self.root / relative_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('Changed validation only\n', encoding='utf-8')
+        self.commit('Change validation only')
+
+        self.assertFalse(planner.changed_since(self.root, 'HEAD^', planner.NATIVE_INPUTS))
+        self.assertEqual(planner.native_source_key(self.root), baseline_key)
+
+        for relative_path in ('native/ci-toolchains.json', 'scripts/build-native.ps1',
+                              'native/feasibility/abi_main.cpp', 'scripts/native-smoke.ps1'):
+            with self.subTest(path=relative_path):
+                previous_key = planner.native_source_key(self.root)
+                path = self.root / relative_path
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('Changed native build input\n', encoding='utf-8')
+                self.commit(f'Change {relative_path}')
+                self.assertTrue(planner.changed_since(self.root, 'HEAD^', planner.NATIVE_INPUTS))
+                self.assertNotEqual(planner.native_source_key(self.root), previous_key)
 
     def test_http_errors_are_not_treated_as_missing_releases(self):
         for status in (401, 403, 429, 500):

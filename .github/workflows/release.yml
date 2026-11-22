@@ -88,9 +88,6 @@ jobs:
         run: python3 scripts/plan-release.py --check-crate slang-slim-sys --tag "$RELEASE_TAG"
       - uses: dtolnay/rust-toolchain@1.85.0
         if: steps.registry.outputs.publish == 'true'
-      - name: Verify packaged sys crate
-        if: steps.registry.outputs.publish == 'true'
-        run: cargo publish -p slang-slim-sys --registry crates-io --no-default-features --dry-run
       - name: Obtain temporary crates.io credential
         if: steps.registry.outputs.publish == 'true'
         id: auth
@@ -115,9 +112,6 @@ jobs:
         run: python3 scripts/plan-release.py --check-crate slang-slim --tag "$RELEASE_TAG"
       - uses: dtolnay/rust-toolchain@1.85.0
         if: steps.registry.outputs.publish == 'true'
-      - name: Verify packaged safe crate
-        if: steps.registry.outputs.publish == 'true'
-        run: cargo publish -p slang-slim --registry crates-io --no-default-features --dry-run
       - name: Obtain temporary crates.io credential
         if: steps.registry.outputs.publish == 'true'
         id: auth

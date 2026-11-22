@@ -195,10 +195,16 @@ The repository workflow at [`.github/workflows/native.yml`](../.github/workflows
 uses Cargo metadata to check that both crate versions and the sys dependency
 requirement agree. It also checks formatting, release planner and repackaging
 tests, and the workspace with `--locked` to catch a stale `Cargo.lock`.
+New commits cancel older CI runs for the same pull request. Pull requests and
+main pushes limited to `README.md` files and `docs/` skip the native jobs and
+run the Linux checks. Tags and manually dispatched runs validate both targets.
+
 The native planner finds a published release with both Windows and Android archives
-whose tag is an ancestor of the current commit, then compares native inputs:
-sources, CMake configuration, the Slang gitlink, native packaging/bootstrap
-scripts, and the native workflow recipe (including its toolchain versions).
+whose tag is an ancestor of the current commit. It compares the sources, CMake
+configuration, Slang gitlink, build and packaging scripts, and toolchains in
+[`native/ci-toolchains.json`](../native/ci-toolchains.json). The ABI probe and
+smoke script also trigger a build so edits to either are verified. Changes to
+workflow orchestration can reuse the same native packages.
 
 | Native state | Action |
 | --- | --- |
@@ -214,19 +220,19 @@ package metadata changes; `binary_source_version` records the original binary
 release even after successive repackaging.
 
 When compilation is required, the workflow verifies the Slang submodule,
-builds both Release configurations, runs the Windows ABI smoke executable, and
-validates the Android ARM64 ELF link result. An exact cache of the packaged
+builds each ABI probe and its Release library dependencies in one invocation,
+runs the Windows ABI smoke executable, and validates the Android ARM64 ELF
+link result. An exact cache of the packaged
 native outputs lets a tag reuse a successful `main` build with the same native
-inputs, release version, target, and planning/repackaging scripts. No partial
-cache matches are used. The manual `force_build` input bypasses both archive
-reuse and this cache.
+inputs, release version, and target. Repackaged cache entries also identify
+their source version and repackaging script. The manual `force_build` input
+bypasses both archive reuse and this cache.
 
-All paths check archive size budgets, run the Windows Rust integration tests
-and example, and cross-link the Android Rust tests and example with NDK
-`27.3.13750724`. Reusing native libraries does not skip testing Rust wrapper
-changes. Main and tag runs upload the validated ZIPs as artifacts retained for
-30 days. Tags run their own validation through the reusable native workflow;
-they do not wait for a separate main workflow run.
+The native jobs check archive size budgets, run the Windows Rust integration
+tests and example, and cross-link the Android Rust tests and example with NDK
+`27.3.13750724`. Tags run their own validation through the reusable native
+workflow. When a tag needs to publish native packages, its native jobs upload
+the validated ZIPs as artifacts retained for 30 days.
 
 ### Crate release tags
 
@@ -250,8 +256,8 @@ before native compilation and publication.
 
 The workflow stages both native assets on the GitHub Release, makes the
 release public, and then publishes `slang-slim-sys` followed by `slang-slim`.
-Each crate first passes `cargo publish --dry-run`. Packaging checks use
-`--no-default-features` on Linux. The native CI checks both targets with the
+Each `cargo publish --no-default-features` invocation packages and verifies the
+crate on Linux before uploading it. Native CI checks both targets with the
 default `native` feature before publication.
 Each publish job checks crates.io again on retries and skips an already
 published version. The native release job uploads missing archives and can
