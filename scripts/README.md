@@ -40,13 +40,24 @@ caches that metadata, and verifies the archive before extraction.
 
 ## CI and release gates
 
-`.github/workflows/native.yml` is the source-of-truth maintainer workflow. It
-runs Rust checks, verifies the pinned Slang gitlink, builds the Windows x64 and
-Android ARM64/API 29 Release configurations, runs the Windows ABI executable
-smoke test, validates the Android ARM64 ELF link output, compiles the Rust
-native tests, and checks the merged archive layout. Successful `main` runs
-upload both release archives as workflow artifacts for the release workflow;
-pull-request runs still validate the build without uploading artifacts.
+`plan-release.py` compares native inputs with a complete published ancestor
+release. It chooses compilation when inputs changed or no baseline is verified,
+repackaging when unchanged binaries need a new release version, and direct
+reuse when this version already has both target archives. It also validates
+the workspace versions and sys dependency requirement using Cargo metadata, and
+checks the unified release tag when supplied. The `--check-crate` option reads
+the exact version's publication status for a Cargo publish job. Run the
+regression tests with Cargo on `PATH` and
+`python -m unittest discover -s scripts/tests -v`.
+
+`repackage-native.py` verifies the previous package's payload sizes/checksums,
+preserves library/header bytes and link metadata, updates its package version,
+and records the original `binary_source_version`. It never invokes a compiler.
+
+`.github/workflows/native.yml` uses that plan to build, repackage, or reuse
+published archives. An exact archive cache avoids recompiling the same native
+inputs for a main build and its tag. All paths run Rust integration/link checks
+and archive checks. Manual `force_build` bypasses reuse and caching.
 
 The Android job installs NDK `27.3.13750724` and Ninja on a Windows runner so it
 uses the same host-generator flow as the documented local build. Android is a
@@ -67,10 +78,12 @@ The following helpers are also safe to run locally:
 for Android. A deliberate size increase should change those budgets in the
 same review as the build-profile change.
 
-Pushing a `v<crate-version>` tag starts `.github/workflows/release.yml`. It
-waits (up to one hour) for the successful `native.yml` `main` run for the tag's
-exact commit, downloads that run's two archives, verifies their ZIP structure
-and manifests, and publishes them through the GitHub Release job. GitHub
-records the SHA-256 digest for each published asset. Main-build artifacts are
-retained for 30 days. No generated release metadata is committed to the
-repository.
+Every release uses `v<version>`. Update the inherited package version and the
+sys dependency requirement in the root `Cargo.toml` and refresh `Cargo.lock`.
+The native package uses the same version when repackaging existing binaries.
+Each tag validates both targets through the reusable native workflow, then
+publishes native assets, `slang-slim-sys`, and `slang-slim` in order. The release
+workflow uses crates.io Trusted Publishing and skips published versions.
+Workflow artifacts are retained for 30 days. See
+[`docs/building.md`](../docs/building.md#continuous-integration-and-releases)
+for version rules and the required one-time Trusted Publisher setup.

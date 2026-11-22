@@ -192,20 +192,87 @@ asset is published.
 ## Continuous integration and releases
 
 The repository workflow at [`.github/workflows/native.yml`](../.github/workflows/native.yml)
-is the reproducible maintainer path. It checks formatting and the workspace,
-verifies the Slang submodule revision, installs the pinned Android NDK
-`27.3.13750724`, builds both Release native configurations, runs the Windows
-ABI smoke executable, validates the Android ARM64 ELF link result, compiles the
-Rust native tests, and checks archive size budgets. Successful `main` runs
-upload both release archives as workflow artifacts; pull-request runs validate
-the build without uploading artifacts.
+uses Cargo metadata to check that both crate versions and the sys dependency
+requirement agree. It also checks formatting, release planner and repackaging
+tests, and the workspace with `--locked` to catch a stale `Cargo.lock`.
+The native planner finds a published release with both Windows and Android archives
+whose tag is an ancestor of the current commit, then compares native inputs:
+sources, CMake configuration, the Slang gitlink, native packaging/bootstrap
+scripts, and the native workflow recipe (including its toolchain versions).
 
-Tags in the form `v<crate-version>` start
-`.github/workflows/release.yml`. The release workflow waits (up to one hour)
-for the successful `native.yml` `main` run for the tag's exact commit,
-downloads the already-built archives, verifies their ZIP structure and manifests,
-and publishes both files under the derived version/target names.
-Main-build artifacts are retained for 30 days. No repository-side artifact index
-needs to be edited.
+| Native state | Action |
+| --- | --- |
+| Inputs changed, or no complete baseline can be verified | Compile both native targets. |
+| Inputs unchanged, release version is new | Repackage the previous binaries with the new package version. |
+| Inputs unchanged, both archives already exist for this version | Reuse those archives. |
+
+The planner checks the current version first, then searches published ancestor
+releases for a complete baseline. API errors fail the check rather than being
+interpreted as missing assets. Repackaging verifies all payload checksums and
+preserves library/header bytes, link metadata, and the pinned Slang commit. Only
+package metadata changes; `binary_source_version` records the original binary
+release even after successive repackaging.
+
+When compilation is required, the workflow verifies the Slang submodule,
+builds both Release configurations, runs the Windows ABI smoke executable, and
+validates the Android ARM64 ELF link result. An exact cache of the packaged
+native outputs lets a tag reuse a successful `main` build with the same native
+inputs, release version, target, and planning/repackaging scripts. No partial
+cache matches are used. The manual `force_build` input bypasses both archive
+reuse and this cache.
+
+All paths check archive size budgets, run the Windows Rust integration tests
+and example, and cross-link the Android Rust tests and example with NDK
+`27.3.13750724`. Reusing native libraries does not skip testing Rust wrapper
+changes. Main and tag runs upload the validated ZIPs as artifacts retained for
+30 days. Tags run their own validation through the reusable native workflow;
+they do not wait for a separate main workflow run.
+
+### Crate release tags
+
+[`.github/workflows/release.yml`](../.github/workflows/release.yml) uses one tag
+rule, `vX.Y.Z`, for every release. Both crates and the native package use the
+same version. A change confined to the safe wrapper still increments both crate
+versions; unchanged native inputs reuse the compiled binaries through
+repackaging. This preserves the existing consumer download URL and manifest
+version checks without requiring a separate native tag or version index.
+
+Both crates inherit `[workspace.package].version` from the root `Cargo.toml`.
+
+1. Set `[workspace.package].version` and the `slang-slim-sys` version in
+   `[workspace.dependencies]` to the new version in the root `Cargo.toml`.
+   Run `cargo update --workspace` to refresh `Cargo.lock`.
+2. Commit the release change, push `main`, and let CI validate it.
+3. Push the matching `v<version>` tag, such as `v0.1.2`.
+
+The release check validates the tag against the versions resolved by Cargo
+before native compilation and publication.
+
+The workflow stages both native assets on the GitHub Release, makes the
+release public, and then publishes `slang-slim-sys` followed by `slang-slim`.
+Each crate first passes `cargo publish --dry-run`. Packaging checks use
+`--no-default-features` on Linux. The native CI checks both targets with the
+default `native` feature before publication.
+Each publish job checks crates.io again on retries and skips an already
+published version. The native release job uploads missing archives and can
+resume a partially uploaded draft.
+
+### One-time crates.io authentication setup
+
+If a crate is new to crates.io, publish it once with a crates.io API token
+after the matching native assets are public. Publish `slang-slim-sys` before
+`slang-slim`. Set up Trusted Publishing for subsequent versions.
+
+For each crate, add a GitHub Actions Trusted Publisher in its crates.io settings.
+
+- Repository owner: `ukabuer`
+- Repository: `rusty_slang_slim`
+- Workflow filename: `release.yml`
+- Environment: leave empty (the workflow does not specify one)
+
+The publish jobs grant `id-token: write` and use
+[`rust-lang/crates-io-auth-action`](https://github.com/rust-lang/crates-io-auth-action)
+to obtain a temporary publishing token. Configure both Trusted Publishers
+before the first automated Cargo release.
 
 All generated files stay below `build` and are ignored by Git.
